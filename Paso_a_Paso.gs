@@ -10,6 +10,7 @@
 // ============================================================================
 
 function onOpen() {
+  cargarConfiguracion();
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('📊 PASO A PASO')
     .addItem('⚙️ Configuración Inicial', 'mostrarConfiguracion')
@@ -101,6 +102,26 @@ const CONFIG = {
 };
 
 // ============================================================================
+// CARGAR CONFIGURACIÓN GUARDADA
+// ============================================================================
+
+function cargarConfiguracion() {
+  const props = PropertiesService.getUserProperties();
+
+  const carpetaId = props.getProperty('FOLDER_PARTICIPANTES_ID');
+  const koboUser = props.getProperty('KOBO_USERNAME');
+  const koboPass = props.getProperty('KOBO_PASSWORD');
+  const koboUrl = props.getProperty('KOBO_CSV_URL');
+
+  if (carpetaId) CONFIG.FOLDER_PARTICIPANTES_ID = carpetaId;
+  if (koboUser) CONFIG.KOBO_USERNAME = koboUser;
+  if (koboPass) CONFIG.KOBO_PASSWORD = koboPass;
+  if (koboUrl) CONFIG.KOBO_CSV_URL = koboUrl;
+
+  log('📂 Configuración cargada desde almacenamiento', 'INFO');
+}
+
+// ============================================================================
 // FUNCIONES BASE
 // ============================================================================
 
@@ -163,6 +184,10 @@ function mostrarConfiguracion() {
 
         <label>Contraseña de KoboToolbox:</label>
         <input type="password" id="koboPass" placeholder="tu_contraseña">
+
+        <label>URL CSV de KoboToolbox (Opcional):</label>
+        <input type="text" id="koboUrl" placeholder="https://kf.kobotoolbox.org/api/v2/assets/...">
+        <div class="info">📌 Si tienes una URL específica de tu formulario Kobo, pégala aquí. Si no, usa la configuración por defecto.</div>
       </div>
 
       <button onclick="guardarConfiguracion()">💾 GUARDAR CONFIGURACIÓN</button>
@@ -174,17 +199,30 @@ function mostrarConfiguracion() {
         const carpeta = document.getElementById('carpetaId').value;
         const user = document.getElementById('koboUser').value;
         const pass = document.getElementById('koboPass').value;
+        const url = document.getElementById('koboUrl').value;
 
         if (!carpeta) {
           alert('❌ Debes ingresar el ID de la carpeta');
           return;
         }
 
-        google.script.run.guardarConfiguracionScript(carpeta, user, pass);
+        if (!user || !pass) {
+          alert('⚠️ Se recomienda ingresar usuario y contraseña de Kobo');
+        }
+
+        google.script.run.guardarConfiguracionScript(carpeta, user, pass, url);
         alert('✅ Configuración guardada exitosamente');
       }
 
       function probarConexion() {
+        const user = document.getElementById('koboUser').value;
+        const pass = document.getElementById('koboPass').value;
+
+        if (!user || !pass) {
+          alert('❌ Debes ingresar usuario y contraseña de Kobo para probar');
+          return;
+        }
+
         alert('🧪 Probando conexión...');
         google.script.run.probarConexionKobo();
       }
@@ -194,21 +232,28 @@ function mostrarConfiguracion() {
   SpreadsheetApp.getUi().showModelessDialog(html, '⚙️ Configuración');
 }
 
-function guardarConfiguracionScript(carpetaId, koboUser, koboPass) {
+function guardarConfiguracionScript(carpetaId, koboUser, koboPass, koboUrl) {
   const props = PropertiesService.getUserProperties();
   props.setProperty('FOLDER_PARTICIPANTES_ID', carpetaId);
   props.setProperty('KOBO_USERNAME', koboUser);
   props.setProperty('KOBO_PASSWORD', koboPass);
+  if (koboUrl) props.setProperty('KOBO_CSV_URL', koboUrl);
 
   CONFIG.FOLDER_PARTICIPANTES_ID = carpetaId;
   CONFIG.KOBO_USERNAME = koboUser;
   CONFIG.KOBO_PASSWORD = koboPass;
+  if (koboUrl) CONFIG.KOBO_CSV_URL = koboUrl;
 
   log('✅ Configuración guardada', 'INFO');
 }
 
 function probarConexionKobo() {
   try {
+    if (!CONFIG.KOBO_USERNAME || !CONFIG.KOBO_PASSWORD) {
+      SpreadsheetApp.getUi().alert('❌ Credenciales de Kobo no configuradas');
+      return;
+    }
+
     const auth = Utilities.base64Encode(`${CONFIG.KOBO_USERNAME}:${CONFIG.KOBO_PASSWORD}`);
     const options = {
       headers: { "Authorization": `Basic ${auth}` },
@@ -216,14 +261,26 @@ function probarConexionKobo() {
       timeout: 30
     };
 
+    log(`Probando conexión Kobo con URL: ${CONFIG.KOBO_CSV_URL}`, 'INFO');
     const response = UrlFetchApp.fetch(CONFIG.KOBO_CSV_URL, options);
-    if (response.getResponseCode() === 200) {
-      SpreadsheetApp.getUi().alert('✅ Conexión a KoboToolbox EXITOSA');
+    const statusCode = response.getResponseCode();
+
+    if (statusCode === 200) {
+      const content = response.getContentText();
+      const lineas = content.split('\n').length;
+      SpreadsheetApp.getUi().alert(`✅ Conexión EXITOSA\n\n📊 ${lineas - 1} registros encontrados`);
+      log(`Conexión exitosa. Registros: ${lineas - 1}`, 'INFO');
+    } else if (statusCode === 401) {
+      SpreadsheetApp.getUi().alert(`❌ Error 401: Credenciales inválidas\n\nVerifica tu usuario y contraseña de KoboToolbox`);
+      log(`Error 401: Credenciales inválidas. User: ${CONFIG.KOBO_USERNAME}`, 'ERROR');
     } else {
-      SpreadsheetApp.getUi().alert('❌ Error: ' + response.getResponseCode());
+      const errorMsg = response.getContentText();
+      SpreadsheetApp.getUi().alert(`❌ Error ${statusCode}\n\n${errorMsg.substring(0, 100)}`);
+      log(`Error HTTP ${statusCode}: ${errorMsg}`, 'ERROR');
     }
   } catch (error) {
-    SpreadsheetApp.getUi().alert('❌ Error de conexión: ' + error);
+    SpreadsheetApp.getUi().alert(`❌ Error de conexión: ${error}`);
+    log(`Error en probarConexionKobo: ${error}`, 'ERROR');
   }
 }
 
@@ -232,6 +289,7 @@ function probarConexionKobo() {
 // ============================================================================
 
 function mostrarEstadisticas() {
+  cargarConfiguracion();
   try {
     const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG.SHEET_NAME);
     const values = sheet.getDataRange().getValues();
@@ -354,8 +412,15 @@ function mostrarAyuda() {
 // ============================================================================
 
 function importarDatosKobo() {
+  cargarConfiguracion();
+
   if (!CONFIG.KOBO_USERNAME || !CONFIG.KOBO_PASSWORD) {
     SpreadsheetApp.getUi().alert('❌ Debes configurar KoboToolbox primero\n\nAbre: 📊 PASO A PASO > ⚙️ Configuración Inicial');
+    return;
+  }
+
+  if (!CONFIG.FOLDER_PARTICIPANTES_ID) {
+    SpreadsheetApp.getUi().alert('❌ Debes configurar la carpeta de participantes\n\nAbre: 📊 PASO A PASO > ⚙️ Configuración Inicial');
     return;
   }
 
@@ -365,6 +430,7 @@ function importarDatosKobo() {
     const csvData = descargarCSVKobo();
     if (!csvData) {
       log("No se pudo descargar CSV de Kobo", "ERROR");
+      SpreadsheetApp.getUi().alert('❌ No se pudo descargar datos de Kobo.\n\nVerifica:\n1. Usuario y contraseña\n2. URL del formulario\n3. Tu conexión a internet');
       return;
     }
 
@@ -501,6 +567,7 @@ function generarIdCreamos(datos) {
 // ============================================================================
 
 function revisarAlertasMentoria() {
+  cargarConfiguracion();
   log("=== REVISIÓN DE ALERTAS DE MENTORÍA ===", "INFO");
 
   try {
