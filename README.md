@@ -72,18 +72,12 @@ AE: Encargado_Cierre
 2. Copia su ID:
    - Abre la carpeta → URL: `https://drive.google.com/drive/folders/{ID}`
 
-### Paso 4: Instalar Scripts
+### Paso 4: Instalar el Script UNIFICADO
 
 1. En el Sheet maestro: `Herramientas > Editor de secuencias de comandos`
-2. Copia **todo el contenido** de cada archivo `.gs` en orden:
-   - `config.gs` (primero - define variables globales)
-   - `importar_kobo.gs`
-   - `crear_documentos.gs`
-   - `alertas_mentoria.gs`
-   - `gestionar_estados.gs`
-   - `utilidades.gs` (último)
-
-3. **Edita `config.gs`** con tus valores:
+2. Abre el archivo `Sistema_Paso_a_Paso_UNIFICADO.gs` de este repositorio
+3. **Copia TODO el contenido** (Ctrl+A) y pégalo en el Editor de Scripts de Google
+4. **Edita la sección CONFIG** (al inicio del código) con tus valores:
 
 ```javascript
 const CONFIG = {
