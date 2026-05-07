@@ -4,16 +4,16 @@
 
 ### **Paso 1: Descarga el código**
 
-👉 Descarga el archivo: **`Sistema_Paso_a_Paso_COMPLETO.gs`**
+👉 Descarga el archivo: **`Paso_a_Paso.gs`** (ÚNICO ARCHIVO)
 
-Desde: https://github.com/adrian-9856/DP_paso_a_paso
+Desde: https://github.com/adrian-9856/DP_paso_a_paso/blob/claude/paso-a-paso-cloud-system-FENDi/Paso_a_Paso.gs
 
 ### **Paso 2: Pega en Google Sheets**
 
 1. Abre tu Google Sheet "Paso a Paso - Sistema Maestro"
 2. Abre: `Herramientas > Editor de secuencias de comandos`
 3. **Limpia todo el código existente** (Ctrl+A, Delete)
-4. **Pega el código** de `Sistema_Paso_a_Paso_COMPLETO.gs` (Ctrl+V)
+4. **Pega el código** de `Paso_a_Paso.gs` (Ctrl+V)
 5. Presiona **Ctrl+S** para guardar
 6. **Recarga la página** (F5)
 
@@ -61,6 +61,18 @@ Resumen visual con:
 - Total de participantes
 - Por estado (Orientación, Mentoría, Formación, etc.)
 - Alertas activas
+
+---
+
+---
+
+## ⚡ RESUMEN
+
+| Elemento | Archivo |
+|----------|---------|
+| **Código Principal** | `Paso_a_Paso.gs` |
+| **Documentación** | `README.md`, `GUIA_RAPIDA.md`, `SISTEMA_PASO_A_PASO.md` |
+| **Todas las funciones** | ✅ En UN SOLO archivo |
 
 ---
 
