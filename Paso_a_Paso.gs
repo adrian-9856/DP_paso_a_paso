@@ -45,6 +45,7 @@ function onOpen() {
       .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addSeparator()
       .addItem('🧪 Probar Kobo', 'probarKobo')
+      .addItem('🔍 Ver Campos Kobo', 'diagnosticarCamposKobo')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
       .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
@@ -915,6 +916,100 @@ function probarKobo() {
     } else {
       SpreadsheetApp.getUi().alert('❌ Error ' + resp.getResponseCode());
     }
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+  }
+}
+
+// ============================================================================
+// DIAGNÓSTICO KOBO — ver campos reales del formulario
+// ============================================================================
+
+function diagnosticarCamposKobo() {
+  try {
+    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
+      { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
+    );
+
+    if (resp.getResponseCode() !== 200) {
+      SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode() + '\n\n' + resp.getContentText().substring(0, 300));
+      return;
+    }
+
+    const data = JSON.parse(resp.getContentText());
+    const registros = data.results || [];
+
+    if (!registros.length) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay respuestas en Kobo todavía.');
+      return;
+    }
+
+    const r = registros[0];
+    const campos = Object.keys(r).sort();
+
+    // Campos que el sistema espera
+    const esperados = {
+      'nombre': 'nombre_completo_del_la_participante',
+      'dpi': 'numero_de_dpi_opcional',
+      'edad': 'edad',
+      'genero': 'genero',
+      'telefono': 'numero_de_telefono',
+      'zona': 'lugar_de_residencia',
+      'email': 'correo_electronico_opcional',
+      'educacion': 'cual_es_el_ultimo_grado_que_completaste',
+      'laboral': 'cual_es_tu_situacion_laboral_actual',
+      'fortalezas': 'que_sabes_hacer_bien',
+      'objetivo': 'que_tipo_de_empleo_estas_buscando_especificamente',
+      'perfil': 'perfil_asignado',
+      'prioridad': 'prioridad_caso',
+      'puntaje': 'puntaje_total_60',
+      'dim1': 'dimension_1_capital_educativo',
+      'dim2': 'dimension_2_capital_laboral',
+      'dim3': 'dimension_3_habilidades_digitales',
+      'dim4': 'dimension_4_claridad_vocacional',
+      'dim5': 'dimension_5_barreras_estructurales',
+      'dim6': 'dimension_6_red_apoyo'
+    };
+
+    let filasCampos = '';
+    campos.forEach(k => {
+      const val = String(r[k] || '').substring(0, 60);
+      const esSistema = Object.values(esperados).includes(k);
+      const bg = esSistema ? '#e8f5e9' : '#fff';
+      const mark = esSistema ? ' ✅' : '';
+      filasCampos += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + k + mark + '</td><td style="padding:3px 6px;font-size:10px;color:#555;max-width:160px;overflow:hidden;white-space:nowrap">' + val + '</td></tr>';
+    });
+
+    let filasEsperados = '';
+    Object.entries(esperados).forEach(([campo, clave]) => {
+      const presente = clave in r;
+      const valor = presente ? String(r[clave]).substring(0, 40) : '⚠️ CAMPO NO ENCONTRADO';
+      const bg = presente ? '#e8f5e9' : '#ffcdd2';
+      filasEsperados += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-weight:bold">' + campo + '</td><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + clave + '</td><td style="padding:3px 6px;font-size:10px">' + valor + '</td></tr>';
+    });
+
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      'body{font-family:Arial;font-size:12px;padding:10px;background:#f8f9fa}' +
+      'h3{color:#1f73e6;margin:10px 0 6px;font-size:13px}' +
+      'table{border-collapse:collapse;width:100%;margin-bottom:14px}' +
+      'td{border:1px solid #e0e0e0;vertical-align:top}' +
+      '.ok{color:#2e7d32;font-weight:bold}.miss{color:#c62828;font-weight:bold}' +
+      '</style></head><body>' +
+      '<h3>🔍 Diagnóstico de Campos Kobo</h3>' +
+      '<p style="font-size:11px;color:#666;margin-bottom:8px">1 registro analizado. ✅ = campo usado por el sistema</p>' +
+      '<h3>Campos que el sistema espera:</h3>' +
+      '<table><tr><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Campo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Clave Kobo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Valor encontrado</th></tr>' +
+      filasEsperados + '</table>' +
+      '<h3>Todos los campos disponibles en Kobo:</h3>' +
+      '<table><tr><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Campo Kobo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Valor</th></tr>' +
+      filasCampos + '</table>' +
+      '</body></html>'
+    ).setWidth(500).setTitle('Diagnóstico Kobo');
+
+    SpreadsheetApp.getUi().showSidebar(html);
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e);
   }
