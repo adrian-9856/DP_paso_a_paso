@@ -12,8 +12,8 @@ function onOpen() {
       .addItem('⚙️ CONFIGURACIÓN COMPLETA', 'mostrarConfiguracionCompleta')
       .addSeparator()
       .addItem('🔄 SINCRONIZAR Kobo (Manual)', 'sincronizarKoboCompleto')
-      .addItem('📥 Sincronizar en Background', 'sincronizarBackground')
       .addSeparator()
+      .addItem('🎨 Colorear Tabla', 'colorearTabla')
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('📋 Ver Reportes', 'abrirReportes')
       .addItem('📁 Derivaciones Pendientes', 'abrirDerivaciones')
@@ -24,7 +24,25 @@ function onOpen() {
 
     log('✅ Sistema iniciado correctamente', 'INFO');
   } catch (error) {
-    log(`Error en onOpen: ${error}`, 'ERROR');
+    log('Error en onOpen: ' + error, 'ERROR');
+  }
+}
+
+// Se ejecuta automáticamente al seleccionar cualquier celda
+function onSelectionChange(e) {
+  try {
+    const hoja = e.range.getSheet();
+    if (hoja.getName() !== CONFIG.HOJAS.MAESTRO) return;
+
+    const fila = e.range.getRow();
+    if (fila < 2) return; // Ignorar encabezados
+
+    const datos = hoja.getRange(fila, 1, 1, 22).getValues()[0];
+    if (!datos[0]) return; // Fila vacía
+
+    mostrarSidebarParticipante(datos);
+  } catch (error) {
+    // Silent — no interrumpir al usuario
   }
 }
 
@@ -1110,6 +1128,223 @@ function mostrarAyuda() {
   `);
 
   SpreadsheetApp.getUi().showModelessDialog(html, '📖 Ayuda');
+}
+
+// ============================================================================
+// PASO 1 — COLORES + SIDEBAR PARTICIPANTE
+// ============================================================================
+
+const COLORES_PERFIL = {
+  'Perfil A': { fondo: '#d9ead3', texto: '#274e13', badge: '🟢 A' },
+  'Perfil B': { fondo: '#cfe2f3', texto: '#1c4587', badge: '🔵 B' },
+  'Perfil C': { fondo: '#fff2cc', texto: '#7f6000', badge: '🟡 C' },
+  'Perfil D': { fondo: '#f4cccc', texto: '#660000', badge: '🔴 D' }
+};
+
+function colorearTabla() {
+  try {
+    const hoja = getHoja(CONFIG.HOJAS.MAESTRO);
+    if (!hoja) {
+      SpreadsheetApp.getUi().alert('⚠️ Primero sincroniza datos de Kobo');
+      return;
+    }
+
+    const ultFila = hoja.getLastRow();
+    if (ultFila < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay datos para colorear');
+      return;
+    }
+
+    const datos = hoja.getRange(2, 1, ultFila - 1, 22).getValues();
+
+    for (let i = 0; i < datos.length; i++) {
+      const perfil = datos[i][13]; // Columna N = Perfil_Asignado
+      const colores = COLORES_PERFIL[perfil];
+      const rango = hoja.getRange(i + 2, 1, 1, 22);
+
+      if (colores) {
+        rango.setBackground(colores.fondo).setFontColor(colores.texto);
+      } else {
+        rango.setBackground('#f3f3f3').setFontColor('#333333');
+      }
+    }
+
+    // Encabezados siempre oscuros
+    hoja.getRange(1, 1, 1, 22)
+      .setBackground('#37474f')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+
+    log('Tabla coloreada: ' + (ultFila - 1) + ' filas', 'INFO');
+    SpreadsheetApp.getUi().alert('✅ Tabla coloreada\n\n🟢 Verde = Perfil A\n🔵 Azul = Perfil B\n🟡 Amarillo = Perfil C\n🔴 Rojo = Perfil D');
+
+  } catch (error) {
+    log('Error coloreando tabla: ' + error, 'ERROR');
+    SpreadsheetApp.getUi().alert('❌ Error: ' + error);
+  }
+}
+
+function mostrarSidebarParticipante(datos) {
+  const nombre    = datos[2]  || 'Sin nombre';
+  const dpi       = datos[3]  || '—';
+  const edad      = datos[4]  || '—';
+  const genero    = datos[5]  || '—';
+  const telefono  = datos[6]  || '—';
+  const zona      = datos[7]  || '—';
+  const perfil    = datos[13] || '—';
+  const prioridad = datos[14] || '—';
+  const puntaje   = datos[15] || 0;
+  const dim1      = Number(datos[16]) || 0;
+  const dim2      = Number(datos[17]) || 0;
+  const dim3      = Number(datos[18]) || 0;
+  const dim4      = Number(datos[19]) || 0;
+  const dim5      = Number(datos[20]) || 0;
+  const dim6      = Number(datos[21]) || 0;
+
+  const colores = COLORES_PERFIL[perfil] || { fondo: '#f3f3f3', texto: '#333', badge: perfil };
+
+  const colorPrioridad = prioridad === 'CRÍTICO' ? '#d32f2f'
+    : prioridad === 'ALTO'    ? '#e65100'
+    : prioridad === 'MEDIO'   ? '#f9a825'
+    : '#388e3c';
+
+  // Radar chart SVG (hexágono simple)
+  const radar = generarRadarSVG([dim1, dim2, dim3, dim4, dim5, dim6]);
+
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; background: #f8f9fa; }
+
+      .header {
+        background: ` + colores.fondo + `;
+        border-left: 5px solid ` + colores.texto + `;
+        padding: 16px;
+      }
+      .nombre { font-size: 16px; font-weight: bold; color: ` + colores.texto + `; }
+      .badge {
+        display: inline-block; margin-top: 6px;
+        background: ` + colores.texto + `; color: white;
+        padding: 3px 10px; border-radius: 20px; font-size: 12px;
+      }
+      .prioridad {
+        display: inline-block; margin-left: 6px;
+        background: ` + colorPrioridad + `; color: white;
+        padding: 3px 10px; border-radius: 20px; font-size: 12px;
+      }
+
+      .seccion { padding: 12px 16px; border-bottom: 1px solid #e0e0e0; }
+      .seccion-titulo {
+        font-size: 11px; font-weight: bold; color: #888;
+        text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+      }
+      .dato { display: flex; justify-content: space-between; margin: 5px 0; font-size: 13px; }
+      .dato-label { color: #666; }
+      .dato-valor { font-weight: bold; color: #333; }
+
+      .radar-wrap { display: flex; justify-content: center; padding: 12px 0; }
+
+      .dim-barra { margin: 5px 0; }
+      .dim-nombre { font-size: 11px; color: #555; margin-bottom: 2px; }
+      .barra-fondo { background: #e0e0e0; border-radius: 4px; height: 8px; }
+      .barra-fill { height: 8px; border-radius: 4px; background: ` + colores.texto + `; transition: width 0.5s; }
+
+      .puntaje-total {
+        text-align: center; padding: 12px;
+        font-size: 28px; font-weight: bold; color: ` + colores.texto + `;
+      }
+      .puntaje-label { font-size: 11px; color: #999; }
+    </style>
+
+    <div class="header">
+      <div class="nombre">👤 ` + nombre + `</div>
+      <span class="badge">` + colores.badge + `</span>
+      <span class="prioridad">` + prioridad + `</span>
+    </div>
+
+    <div class="puntaje-total">
+      ` + puntaje + `<span style="font-size:14px">/60</span>
+      <div class="puntaje-label">Puntaje total</div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-titulo">Datos personales</div>
+      <div class="dato"><span class="dato-label">DPI</span><span class="dato-valor">` + dpi + `</span></div>
+      <div class="dato"><span class="dato-label">Edad</span><span class="dato-valor">` + edad + `</span></div>
+      <div class="dato"><span class="dato-label">Género</span><span class="dato-valor">` + genero + `</span></div>
+      <div class="dato"><span class="dato-label">Teléfono</span><span class="dato-valor">` + telefono + `</span></div>
+      <div class="dato"><span class="dato-label">Zona</span><span class="dato-valor">` + zona + `</span></div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-titulo">Dimensiones</div>
+      <div class="radar-wrap">` + radar + `</div>
+      ` + generarBarrasDimensiones([dim1,dim2,dim3,dim4,dim5,dim6], colores.texto) + `
+    </div>
+  `);
+
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function generarBarrasDimensiones(dims, color) {
+  const nombres = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+  return dims.map(function(val, i) {
+    const pct = Math.round((val / 10) * 100);
+    return '<div class="dim-barra">'
+      + '<div class="dim-nombre">' + nombres[i] + ' (' + val + '/10)</div>'
+      + '<div class="barra-fondo"><div class="barra-fill" style="width:' + pct + '%;background:' + color + '"></div></div>'
+      + '</div>';
+  }).join('');
+}
+
+function generarRadarSVG(dims) {
+  const cx = 90, cy = 90, r = 70;
+  const angulos = [270, 330, 30, 90, 150, 210]; // 6 ejes
+  const etiquetas = ['Educ','Labor','Digital','Vocal','Barr','Apoyo'];
+
+  // Puntos del polígono de datos
+  const puntos = angulos.map(function(ang, i) {
+    const rad = (ang * Math.PI) / 180;
+    const escala = (dims[i] / 10);
+    return [
+      Math.round(cx + r * escala * Math.cos(rad)),
+      Math.round(cy + r * escala * Math.sin(rad))
+    ];
+  });
+
+  const polyPuntos = puntos.map(function(p) { return p[0] + ',' + p[1]; }).join(' ');
+
+  // Líneas del fondo (3 niveles)
+  let fondoLineas = '';
+  [0.33, 0.66, 1].forEach(function(nivel) {
+    const pts = angulos.map(function(ang) {
+      const rad = (ang * Math.PI) / 180;
+      return Math.round(cx + r * nivel * Math.cos(rad)) + ',' + Math.round(cy + r * nivel * Math.sin(rad));
+    }).join(' ');
+    fondoLineas += '<polygon points="' + pts + '" fill="none" stroke="#ddd" stroke-width="1"/>';
+  });
+
+  // Ejes
+  let ejes = angulos.map(function(ang) {
+    const rad = (ang * Math.PI) / 180;
+    const x2 = Math.round(cx + r * Math.cos(rad));
+    const y2 = Math.round(cy + r * Math.sin(rad));
+    return '<line x1="' + cx + '" y1="' + cy + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#ddd" stroke-width="1"/>';
+  }).join('');
+
+  // Etiquetas
+  let labels = angulos.map(function(ang, i) {
+    const rad = (ang * Math.PI) / 180;
+    const x = Math.round(cx + (r + 14) * Math.cos(rad));
+    const y = Math.round(cy + (r + 14) * Math.sin(rad));
+    return '<text x="' + x + '" y="' + y + '" text-anchor="middle" font-size="9" fill="#666">' + etiquetas[i] + '</text>';
+  }).join('');
+
+  return '<svg width="180" height="180" viewBox="0 0 180 180">'
+    + fondoLineas + ejes
+    + '<polygon points="' + polyPuntos + '" fill="rgba(102,126,234,0.3)" stroke="#667eea" stroke-width="2"/>'
+    + labels
+    + '</svg>';
 }
 
 // ============================================================================
