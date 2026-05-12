@@ -270,9 +270,23 @@ function crearExpediente(folderBase, id, nombre, datos) {
     body.appendParagraph('Red Apoyo:   ' + (datos['dimension_6_red_apoyo'] || 0) + '/10');
     body.appendParagraph('');
 
-    const s3 = body.appendParagraph('PLAN DE ACCIÓN');
+    const s3 = body.appendParagraph('PERFIL PROFESIONAL');
     s3.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Educación:         ' + (datos['cual_es_el_ultimo_grado_que_completaste'] || '—'));
+    body.appendParagraph('Situación laboral: ' + (datos['cual_es_tu_situacion_laboral_actual'] || '—'));
+    body.appendParagraph('Fortalezas:        ' + (datos['que_sabes_hacer_bien'] || '—'));
+    body.appendParagraph('Objetivo laboral:  ' + (datos['que_tipo_de_empleo_estas_buscando_especificamente'] || '—'));
+    body.appendParagraph('');
+
+    const s4 = body.appendParagraph('PLAN DE ACCIÓN');
+    s4.setHeading(DocumentApp.ParagraphHeading.HEADING2);
     body.appendParagraph('[Definir acciones para este participante]');
+    body.appendParagraph('');
+
+    const s5 = body.appendParagraph('HISTORIAL DE CAMBIOS');
+    s5.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Fecha             | Campo             | Cambio                          | Usuario');
+    body.appendParagraph('─────────────────────────────────────────────────────────────────────────');
 
     doc.saveAndClose();
 
@@ -431,12 +445,18 @@ function onEdit(e) {
       logSheet.appendRow([ahora, CONFIG.HOJA, fila, columna, valorAnterior, valorNuevo, usuario]);
     }
 
-    // Si cambió ESTADO, PERFIL o PRIORIDAD, actualizar documento del participante
-    if ([CONFIG.COL.ESTADO, CONFIG.COL.PERFIL, CONFIG.COL.PRIORIDAD].includes(columna)) {
+    // Sincronizar con Google Doc si la columna es un campo de datos
+    const C = CONFIG.COL;
+    const COLS_SYNC = [
+      C.NOMBRE, C.DPI, C.EDAD, C.GENERO, C.TELEFONO, C.ZONA,
+      C.EDUCACION, C.LABORAL, C.FORTALEZAS, C.OBJETIVO,
+      C.PERFIL, C.PRIORIDAD, C.ESTADO
+    ];
+    if (COLS_SYNC.includes(columna)) {
       const datos = sheet.getRange(fila, 1, 1, 26).getValues()[0];
-      const docId = datos[CONFIG.COL.DOC_ID - 1];
+      const docId = datos[C.DOC_ID - 1];
       if (docId) {
-        sincronizarConDocumento(docId, datos, columna, valorNuevo);
+        sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior);
       }
     }
   } catch(e) {
@@ -444,39 +464,69 @@ function onEdit(e) {
   }
 }
 
-function sincronizarConDocumento(docId, datos, columnaModificada, valorNuevo) {
+function sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior) {
   try {
     const doc = DocumentApp.openById(docId);
     const body = doc.getBody();
-    const texto = body.getText();
+    const C = CONFIG.COL;
 
-    const id = datos[CONFIG.COL.ID - 1] || '';
-    const perfil = datos[CONFIG.COL.PERFIL - 1] || '—';
-    const prioridad = datos[CONFIG.COL.PRIORIDAD - 1] || '—';
-    const estado = datos[CONFIG.COL.ESTADO - 1] || '—';
+    // Mapa: número de columna → {patrón regex, prefijo del campo en el doc}
+    const mapa = {};
+    mapa[C.NOMBRE]     = { p: 'Nombre:.*',            pre: 'Nombre:    ' };
+    mapa[C.DPI]        = { p: 'DPI:.*',               pre: 'DPI:       ' };
+    mapa[C.EDAD]       = { p: 'Edad:.*',              pre: 'Edad:      ' };
+    mapa[C.GENERO]     = { p: 'Género:.*',            pre: 'Género:    ' };
+    mapa[C.TELEFONO]   = { p: 'Teléfono:.*',          pre: 'Teléfono:  ' };
+    mapa[C.ZONA]       = { p: 'Zona:.*',              pre: 'Zona:      ' };
+    mapa[C.EDUCACION]  = { p: 'Educación:.*',         pre: 'Educación:         ' };
+    mapa[C.LABORAL]    = { p: 'Situación laboral:.*', pre: 'Situación laboral: ' };
+    mapa[C.FORTALEZAS] = { p: 'Fortalezas:.*',        pre: 'Fortalezas:        ' };
+    mapa[C.OBJETIVO]   = { p: 'Objetivo laboral:.*',  pre: 'Objetivo laboral:  ' };
 
-    // Actualizar la línea de "ID: ... Perfil: ... Prioridad: ..."
-    const patronId = /ID: [^\n|]+\s*\|\s*Perfil: [^\n|]+\s*\|\s*Prioridad: [^\n]*/;
-    const nuevaLineaId = 'ID: ' + id + '   |   Perfil: ' + perfil + '   |   Prioridad: ' + prioridad;
-    body.replaceText(patronId, nuevaLineaId);
+    // Reemplazar el campo correspondiente
+    const campo = mapa[columna];
+    if (campo) {
+      body.replaceText(campo.p, campo.pre + (valorNuevo || '—'));
+    }
 
-    // Si cambió ESTADO, agregar nota de actualización al final
-    if (columnaModificada === CONFIG.COL.ESTADO) {
-      const ahora = new Date();
-      const fechaHora = Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
-      const usuario = Session.getEffectiveUser().getEmail();
+    // Para PERFIL o PRIORIDAD, actualizar la línea de encabezado ID | Perfil | Prioridad
+    if (columna === C.PERFIL || columna === C.PRIORIDAD) {
+      const id = datos[C.ID - 1] || '';
+      const perfil = datos[C.PERFIL - 1] || '—';
+      const prioridad = datos[C.PRIORIDAD - 1] || '—';
+      body.replaceText('ID: .*\\|.*Prioridad:.*', 'ID: ' + id + '   |   Perfil: ' + perfil + '   |   Prioridad: ' + prioridad);
+    }
 
-      const parrafos = body.getParagraphs();
-      if (parrafos.length > 0) {
-        const ultimoParrafo = parrafos[parrafos.length - 1];
-        ultimoParrafo.appendText('\n\n📝 Actualización: ' + fechaHora + '\nNuevo estado: ' + valorNuevo + '\nPor: ' + usuario);
-      }
+    // Si cambió NOMBRE también actualizar título del documento
+    if (columna === C.NOMBRE && valorNuevo) {
+      doc.setName('Perfil - ' + valorNuevo);
+    }
+
+    // Registrar en sección HISTORIAL del documento
+    const fechaHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const usuario = Session.getEffectiveUser().getEmail().split('@')[0];
+    const nombreCampo = getNombreCampo(columna);
+    const lineaLog = fechaHora + ' | ' + nombreCampo.padEnd(17) + ' | ' + (valorAnterior || '—').toString().substring(0, 30).padEnd(31) + ' → ' + (valorNuevo || '—').toString().substring(0, 20) + ' | ' + usuario;
+
+    if (body.getText().includes('HISTORIAL DE CAMBIOS')) {
+      body.appendParagraph(lineaLog);
     }
 
     doc.saveAndClose();
   } catch(e) {
-    // Error silencioso - el documento puede haber sido movido o eliminado
+    // Error silencioso - doc puede haber sido movido o eliminado
   }
+}
+
+function getNombreCampo(columna) {
+  const C = CONFIG.COL;
+  const n = {};
+  n[C.NOMBRE] = 'Nombre'; n[C.DPI] = 'DPI'; n[C.EDAD] = 'Edad';
+  n[C.GENERO] = 'Género'; n[C.TELEFONO] = 'Teléfono'; n[C.ZONA] = 'Zona';
+  n[C.EDUCACION] = 'Educación'; n[C.LABORAL] = 'Situación Laboral';
+  n[C.FORTALEZAS] = 'Fortalezas'; n[C.OBJETIVO] = 'Objetivo';
+  n[C.PERFIL] = 'Perfil'; n[C.PRIORIDAD] = 'Prioridad'; n[C.ESTADO] = 'Estado';
+  return n[columna] || 'Campo ' + columna;
 }
 
 // ============================================================================
