@@ -162,7 +162,8 @@ function sincronizarAutomatico() {
 
 function sincronizar(silencioso) {
   try {
-    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
     if (!hoja) {
       if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala primero');
       return;
@@ -491,6 +492,15 @@ function manejarEdicion(e) {
       const docId = datos[C.DOC_ID - 1];
       if (docId) {
         sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior);
+      }
+
+      // Si cambió ESTADO → Calendar + Email al participante
+      if (columna === C.ESTADO) {
+        const nombre   = datos[C.NOMBRE - 1] || '';
+        const email    = datos[C.EMAIL - 1] || '';
+        const docUrl   = datos[C.DOC_URL - 1] || '';
+        crearEventoCalendario(nombre, valorNuevo, docUrl);
+        if (email) notificarParticipante(nombre, email, valorNuevo, datos);
       }
     }
   } catch(e) {
@@ -1374,5 +1384,114 @@ function restaurarDesdeDrive() {
 }
 
 // ============================================================================
-// FIN - v7.3
+// GOOGLE CALENDAR — Eventos automáticos por cambio de estado
+// ============================================================================
+
+function crearEventoCalendario(nombre, nuevoEstado, docUrl) {
+  try {
+    const cal = CalendarApp.getDefaultCalendar();
+    const hoy = new Date();
+    let diasAdelante = 0;
+    let titulo = '';
+    let descripcion = '';
+
+    if (nuevoEstado === 'Mentoría') {
+      diasAdelante = 7;
+      titulo = '📋 Seguimiento: ' + nombre;
+      descripcion = 'Primera sesión de seguimiento en mentoría.\n\nParticipante: ' + nombre + '\nEstado: Mentoría\nExpediente: ' + (docUrl || 'Sin link');
+    } else if (nuevoEstado === 'Formación') {
+      diasAdelante = 14;
+      titulo = '📚 Revisión formación: ' + nombre;
+      descripcion = 'Revisión de avance en formación técnica.\n\nParticipante: ' + nombre + '\nExpediente: ' + (docUrl || 'Sin link');
+    } else if (nuevoEstado === 'Completado' || nuevoEstado === 'Cierre') {
+      diasAdelante = 30;
+      titulo = '🏁 Revisión de resultados: ' + nombre;
+      descripcion = 'Revisión de resultados post-cierre del caso.\n\nParticipante: ' + nombre + '\nExpediente: ' + (docUrl || 'Sin link');
+    }
+
+    if (!titulo) return;
+
+    const fechaEvento = new Date(hoy.getTime() + diasAdelante * 24 * 60 * 60 * 1000);
+    fechaEvento.setHours(9, 0, 0, 0);
+    const fechaFin = new Date(fechaEvento.getTime() + 30 * 60 * 1000);
+
+    cal.createEvent(titulo, fechaEvento, fechaFin, { description: descripcion });
+  } catch(e) {
+    // Sin permisos de calendar o error silencioso
+  }
+}
+
+// ============================================================================
+// EMAIL AL PARTICIPANTE — Notificación de avance de estado
+// ============================================================================
+
+function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
+  try {
+    const C = CONFIG.COL;
+    const estados = ['Mentoría', 'Formación', 'Completado'];
+    if (!estados.includes(nuevoEstado)) return;
+
+    const nombreCorto = nombre.split(' ')[0];
+    const responsable = datos[14] || 'Tu equipo Creamos'; // columna 15 = Responsable si existe
+    const docUrl = datos[C.DOC_URL - 1] || '';
+
+    let cuerpo = '';
+    let asunto = '';
+
+    if (nuevoEstado === 'Mentoría') {
+      asunto = '✅ ¡Tu proceso avanzó a Mentoría! — Paso a Paso';
+      cuerpo =
+        'Hola ' + nombreCorto + ',\n\n' +
+        'Tienes una actualización en tu proceso con Creamos. 🌱\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '✅ Tu estado ha avanzado a: MENTORÍA\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
+        'En esta etapa vas a recibir acompañamiento personalizado para\n' +
+        'definir tu objetivo laboral y fortalecer tus habilidades.\n\n' +
+        'Tu equipo de acompañamiento está contigo. 💪\n\n' +
+        'Si tienes preguntas, responde a este correo.\n\n' +
+        '¡Seguimos adelante! 🚀\n' +
+        'Equipo Creamos — Programa Paso a Paso';
+    } else if (nuevoEstado === 'Formación') {
+      asunto = '📚 ¡Iniciaste tu proceso de Formación! — Paso a Paso';
+      cuerpo =
+        'Hola ' + nombreCorto + ',\n\n' +
+        '¡Excelentes noticias! 🎉\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '📚 Tu estado ha avanzado a: FORMACIÓN\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
+        'Estás iniciando tu proceso de desarrollo de habilidades técnicas.\n' +
+        'Este es un paso muy importante en tu camino al empleo. 🌟\n\n' +
+        '¡Seguimos contigo!\n' +
+        'Equipo Creamos — Programa Paso a Paso';
+    } else if (nuevoEstado === 'Completado') {
+      asunto = '🏆 ¡Completaste el programa Paso a Paso! — Creamos';
+      cuerpo =
+        'Hola ' + nombreCorto + ',\n\n' +
+        '¡FELICITACIONES! 🎊🎉\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '🏆 Has COMPLETADO el programa Paso a Paso\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
+        'Has recorrido un camino increíble y estamos muy orgullosos\n' +
+        'de tu esfuerzo y dedicación. 💪\n\n' +
+        'Recuerda que siempre puedes contar con Creamos.\n\n' +
+        '¡Mucho éxito en tu nueva etapa! 🌟\n' +
+        'Equipo Creamos — Programa Paso a Paso';
+    }
+
+    if (cuerpo) {
+      MailApp.sendEmail({
+        to: emailParticipante,
+        subject: asunto,
+        body: cuerpo,
+        replyTo: CONFIG.ADMIN_EMAIL
+      });
+    }
+  } catch(e) {
+    // Sin email o error silencioso
+  }
+}
+
+// ============================================================================
+// FIN - v8.0
 // ============================================================================
