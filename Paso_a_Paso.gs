@@ -41,10 +41,13 @@ function onOpen() {
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('➡️ Registrar Derivación', 'abrirFormDerivacion')
+      .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addSeparator()
       .addItem('📈 Estadísticas', 'verEstadisticas')
       .addItem('🧪 Probar Kobo', 'probarKobo')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
+      .addSeparator()
+      .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
       .addToUi();
   } catch(e) {
     // Sin contexto UI
@@ -200,8 +203,8 @@ function sincronizar(silencioso) {
         r['cual_es_tu_situacion_laboral_actual'] || '',
         r['que_sabes_hacer_bien'] || '',
         r['que_tipo_de_empleo_estas_buscando_especificamente'] || '',
-        r['perfil_asignado'] || '',
-        r['prioridad_caso'] || '',
+        normalizarPerfil(r['perfil_asignado']),
+        normalizarPrioridad(r['prioridad_caso']),
         Number(r['puntaje_total_60']) || 0,
         Number(r['dimension_1_capital_educativo']) || 0,
         Number(r['dimension_2_capital_laboral']) || 0,
@@ -662,12 +665,12 @@ function actualizarDashboard() {
     dash.appendRow(['Total de participantes', datos.length]);
     dash.appendRow(['']);
 
-    // Por perfil
+    // Por perfil — normaliza valores de Kobo antes de contar
     dash.appendRow(['POR PERFIL']);
     dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
     const perfiles = { 'Perfil A': 0, 'Perfil B': 0, 'Perfil C': 0, 'Perfil D': 0, 'Sin perfil': 0 };
     datos.forEach(r => {
-      const p = r[CONFIG.COL.PERFIL - 1] || 'Sin perfil';
+      const p = normalizarPerfil(r[CONFIG.COL.PERFIL - 1]) || 'Sin perfil';
       perfiles[p] = (perfiles[p] || 0) + 1;
     });
     Object.entries(perfiles).forEach(([k, v]) => {
@@ -689,17 +692,17 @@ function actualizarDashboard() {
     });
     dash.appendRow(['']);
 
-    // Por prioridad
+    // Por prioridad — normaliza valores de Kobo antes de contar
     dash.appendRow(['POR PRIORIDAD']);
     dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    const prioridades = { 'CRÍTICO': 0, 'ALTO': 0, 'MEDIO': 0, 'BAJO': 0, 'Sin prioridad': 0 };
+    const prioridades = { 'CRÍTICO': 0, 'ALTO': 0, 'MEDIO': 0, 'BAJO': 0 };
     datos.forEach(r => {
-      const p = r[CONFIG.COL.PRIORIDAD - 1] || 'Sin prioridad';
+      const p = normalizarPrioridad(r[CONFIG.COL.PRIORIDAD - 1]) || 'Sin prioridad';
       prioridades[p] = (prioridades[p] || 0) + 1;
     });
-    Object.entries(prioridades).forEach(([k, v]) => {
-      if (k === 'CRÍTICO') dash.getRange(dash.getLastRow() + 1, 1, 1, 2).setBackground('#ffcdd2');
-      dash.appendRow([k, v]);
+    [['CRÍTICO','#ffcdd2'], ['ALTO','#ffe0b2'], ['MEDIO','#fff9c4'], ['BAJO','#c8e6c9']].forEach(([k, color]) => {
+      dash.appendRow([k, prioridades[k] || 0]);
+      dash.getRange(dash.getLastRow(), 1, 1, 2).setBackground(color);
     });
     dash.appendRow(['']);
 
@@ -975,5 +978,152 @@ function svgBarras(dims, color) {
 }
 
 // ============================================================================
-// FIN - v7.0
+// NORMALIZACIÓN DE VALORES KOBO
+// ============================================================================
+
+function normalizarPerfil(valor) {
+  if (!valor) return 'Sin perfil';
+  const v = valor.toString().toLowerCase();
+  if (v.includes('perfil a') || v.startsWith('a ') || v === 'a') return 'Perfil A';
+  if (v.includes('perfil b') || v.startsWith('b ') || v === 'b') return 'Perfil B';
+  if (v.includes('perfil c') || v.startsWith('c ') || v === 'c') return 'Perfil C';
+  if (v.includes('perfil d') || v.startsWith('d ') || v === 'd') return 'Perfil D';
+  return valor;
+}
+
+function normalizarPrioridad(valor) {
+  if (!valor) return 'Sin prioridad';
+  const v = valor.toString().toLowerCase();
+  if (v.includes('crít') || v.includes('urgente') || v.includes('crítico')) return 'CRÍTICO';
+  if (v.includes('alto') || v.includes('alta') || v.includes('high')) return 'ALTO';
+  if (v.includes('medio') || v.includes('media') || v.includes('normal') || v.includes('medium')) return 'MEDIO';
+  if (v.includes('bajo') || v.includes('baja') || v.includes('low')) return 'BAJO';
+  return valor;
+}
+
+// ============================================================================
+// DESINSTALAR & LIMPIAR
+// ============================================================================
+
+function desinstalarYLimpiar() {
+  const ui = SpreadsheetApp.getUi();
+  const resp1 = ui.alert(
+    '⚠️ DESINSTALAR SISTEMA',
+    '¿Confirmas que quieres eliminar?\n\n' +
+    '• Todas las carpetas y documentos de participantes en Drive\n' +
+    '• Hojas: Derivaciones, Log, Dashboard\n' +
+    '• Todos los triggers automáticos\n\n' +
+    'La hoja Maestro se conserva con sus datos.',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp1 !== ui.Button.YES) return;
+
+  const resp2 = ui.alert('⚠️ CONFIRMAR', '¿Estás 100% seguro? Esta acción NO se puede deshacer.', ui.ButtonSet.YES_NO);
+  if (resp2 !== ui.Button.YES) return;
+
+  try {
+    let eliminados = 0;
+
+    // Eliminar carpetas de participantes en Drive
+    try {
+      const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
+      const folderBase = DriveApp.getFolderById(folderId);
+      const subcarpetas = folderBase.getFolders();
+      while (subcarpetas.hasNext()) {
+        subcarpetas.next().setTrashed(true);
+        eliminados++;
+      }
+    } catch(e) {}
+
+    // Eliminar hojas secundarias
+    const ss = SpreadsheetApp.getActive();
+    ['Derivaciones', 'Log', 'Dashboard'].forEach(nombre => {
+      const h = ss.getSheetByName(nombre);
+      if (h) ss.deleteSheet(h);
+    });
+
+    // Eliminar todos los triggers
+    ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+
+    // Limpiar PropertiesService
+    PropertiesService.getUserProperties().deleteAllProperties();
+
+    ui.alert('✅ Sistema limpiado\n\n' +
+      '• ' + eliminados + ' carpetas eliminadas de Drive\n' +
+      '• Hojas secundarias eliminadas\n' +
+      '• Triggers eliminados\n\n' +
+      'Puedes volver a instalar con 📥 Instalar Sistema.'
+    );
+  } catch(e) {
+    ui.alert('❌ Error al desinstalar: ' + e);
+  }
+}
+
+// ============================================================================
+// RESTAURAR DESDE DRIVE
+// ============================================================================
+
+function restaurarDesdeDrive() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) {
+      ui.alert('❌ No existe la hoja Maestro. Instala primero.');
+      return;
+    }
+
+    // IDs existentes en el Sheet
+    const existentes = new Set();
+    if (hoja.getLastRow() > 1) {
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
+        .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
+    }
+
+    const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
+    const folderBase = DriveApp.getFolderById(folderId);
+    const subcarpetas = folderBase.getFolders();
+    let restaurados = 0;
+
+    while (subcarpetas.hasNext()) {
+      const carpeta = subcarpetas.next();
+      const nombreCarpeta = carpeta.getName(); // Formato: "ID - Nombre"
+      const partes = nombreCarpeta.split(' - ');
+      if (partes.length < 2) continue;
+
+      const id = partes[0].trim();
+      const nombre = partes.slice(1).join(' - ').trim();
+
+      if (existentes.has(id)) continue; // Ya existe en Sheet
+
+      // Buscar el doc de perfil dentro de la carpeta
+      const archivos = carpeta.getFilesByName('Perfil - ' + nombre);
+      const docId = archivos.hasNext() ? archivos.next().getId() : '';
+      const docUrl = docId ? 'https://docs.google.com/document/d/' + docId + '/edit' : '';
+
+      // Crear fila mínima con lo que podemos recuperar
+      const fila = [
+        id, new Date(), nombre,
+        '','','','','','','','','','',
+        '','','0','0','0','0','0','0','0',
+        'Recuperado',
+        carpeta.getId(), docId, docUrl
+      ];
+
+      hoja.appendRow(fila);
+      restaurados++;
+    }
+
+    ui.alert('✅ Restauración completada\n\n' +
+      restaurados + ' participantes recuperados desde Drive\n\n' +
+      'Nota: Solo se recuperan ID, Nombre y links.\n' +
+      'Sincroniza con Kobo para completar los datos.'
+    );
+  } catch(e) {
+    ui.alert('❌ Error al restaurar: ' + e);
+  }
+}
+
+// ============================================================================
+// FIN - v7.3
 // ============================================================================
