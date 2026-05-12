@@ -9,7 +9,7 @@ function onOpen() {
     const ui = SpreadsheetApp.getUi();
 
     ui.createMenu('📊 PASO A PASO')
-      .addItem('⚙️ Configuración', 'mostrarConfiguracion')
+      .addItem('⚙️ CONFIGURACIÓN COMPLETA', 'mostrarConfiguracionCompleta')
       .addSeparator()
       .addItem('🔄 SINCRONIZAR Kobo (Manual)', 'sincronizarKoboCompleto')
       .addItem('📥 Sincronizar en Background', 'sincronizarBackground')
@@ -126,13 +126,265 @@ function log(msg, tipo = "INFO") {
 }
 
 // ============================================================================
-// MENÚ - CONFIGURACIÓN
+// MENÚ - CONFIGURACIÓN COMPLETA
 // ============================================================================
 
-function mostrarConfiguracion() {
-  const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || '';
+function mostrarConfiguracionCompleta() {
+  const props = PropertiesService.getUserProperties();
+  const apiKey = props.getProperty('KOBO_API_KEY') || '';
+  const carpetaId = props.getProperty('FOLDER_PARTICIPANTES_ID') || '';
+
+  // Verificar estado del sistema
+  const ss = getSpreadsheet();
+  const hojaMaestro = ss.getSheetByName(CONFIG.HOJAS.MAESTRO);
+  const hojasExistentes = ss.getSheets().map(h => h.getName());
 
   const html = HtmlService.createHtmlOutput(`
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: 'Segoe UI', Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+      .container { max-width: 1000px; margin: 0 auto; }
+      .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+      .tab-btn { background: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: #667eea; transition: all 0.3s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+      .tab-btn.active { background: #667eea; color: white; }
+      .tab-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+      .tab-content { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); display: none; }
+      .tab-content.active { display: block; }
+      h1 { color: #667eea; margin-bottom: 20px; font-size: 28px; border-bottom: 3px solid #667eea; padding-bottom: 15px; }
+      h2 { color: #333; margin-top: 20px; margin-bottom: 15px; font-size: 18px; }
+      .section { background: #f8fafb; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #667eea; }
+      .status { padding: 12px; border-radius: 8px; margin-bottom: 10px; font-weight: bold; }
+      .status.ok { background: #c8e6c9; color: #2e7d32; }
+      .status.warning { background: #fff3cd; color: #856404; }
+      .status.error { background: #f8d7da; color: #721c24; }
+      .input-group { margin-bottom: 15px; }
+      label { display: block; font-weight: bold; color: #333; margin-bottom: 5px; }
+      input, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: monospace; }
+      textarea { min-height: 80px; }
+      .button-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; }
+      button { padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s; }
+      .btn-primary { background: #667eea; color: white; }
+      .btn-primary:hover { background: #5568d3; transform: translateY(-2px); }
+      .btn-success { background: #4caf50; color: white; }
+      .btn-success:hover { background: #45a049; }
+      .btn-danger { background: #f44336; color: white; }
+      .btn-danger:hover { background: #da190b; }
+      .btn-warning { background: #ff9800; color: white; }
+      .btn-warning:hover { background: #e68900; }
+      .btn-secondary { background: #757575; color: white; }
+      .btn-secondary:hover { background: #616161; }
+      .info-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px; border-radius: 4px; margin: 10px 0; color: #0d47a1; }
+      .hoja-item { background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 5px 0; display: flex; justify-content: space-between; align-items: center; }
+      .hoja-item.activa { background: #c8e6c9; }
+      .step { background: #f0f4ff; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #667eea; }
+      .step-number { display: inline-block; background: #667eea; color: white; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-weight: bold; margin-right: 10px; }
+    </style>
+
+    <div class="container">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="cambiarTab('estado')">📊 Estado del Sistema</button>
+        <button class="tab-btn" onclick="cambiarTab('instalar')">📥 Instalar Sistema</button>
+        <button class="tab-btn" onclick="cambiarTab('configurar')">⚙️ Configurar Kobo</button>
+        <button class="tab-btn" onclick="cambiarTab('respaldar')">💾 Respaldar/Restaurar</button>
+        <button class="tab-btn" onclick="cambiarTab('desinstalar')">🗑️ Desinstalar</button>
+      </div>
+
+      <!-- TAB 1: ESTADO DEL SISTEMA -->
+      <div id="estado" class="tab-content active">
+        <h1>📊 Estado del Sistema</h1>
+
+        <h2>✅ Información General</h2>
+        <div class="section">
+          <p><strong>Versión:</strong> 4.0 Profesional</p>
+          <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID.substring(0, 40)}...</p>
+          <p><strong>Estado:</strong> ${hojaMaestro ? '✅ Operativo' : '⚠️ Necesita instalación'}</p>
+        </div>
+
+        <h2>📄 Hojas del Sistema</h2>
+        ${hojasExistentes.map(hoja => {
+          const esRequerida = Object.values(CONFIG.HOJAS).includes(hoja);
+          return \`<div class="hoja-item \${esRequerida ? 'activa' : ''}">\${hoja} \${esRequerida ? '✅' : ''}</div>\`;
+        }).join('')}
+
+        <h2>🔑 Configuración de Kobo</h2>
+        <div class="section">
+          <p><strong>API Key guardada:</strong> ${apiKey ? '✅ Sí (' + apiKey.substring(0, 10) + '...)' : '❌ No'}</p>
+          <p><strong>Carpeta Drive:</strong> ${carpetaId ? '✅ Sí' : '❌ No'}</p>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="google.script.run.probarConexionKoboAPI('${apiKey}')">🧪 Probar Conexión</button>
+        </div>
+      </div>
+
+      <!-- TAB 2: INSTALAR SISTEMA -->
+      <div id="instalar" class="tab-content">
+        <h1>📥 Instalación Completa del Sistema</h1>
+
+        <div class="info-box">
+          <strong>📌 Esto creará todas las hojas necesarias con la estructura completa</strong>
+        </div>
+
+        <h2>Pasos de Instalación</h2>
+
+        <div class="step">
+          <span class="step-number">1</span>
+          <strong>Crear todas las hojas automáticamente</strong>
+          <p style="margin-top: 5px; color: #666;">Se crearán: Maestro, Dashboard, Derivación, Reportes, Configuración, Log</p>
+          <button class="btn-success" onclick="google.script.run.instalarSistemaCompleto()">✅ INSTALAR AHORA</button>
+        </div>
+
+        <div class="step">
+          <span class="step-number">2</span>
+          <strong>Configurar API Key de Kobo</strong>
+          <p style="margin-top: 5px; color: #666;">Ve a la pestaña "⚙️ Configurar Kobo"</p>
+        </div>
+
+        <div class="step">
+          <span class="step-number">3</span>
+          <strong>Sincronizar datos de Kobo</strong>
+          <p style="margin-top: 5px; color: #666;">Usa el menú 📊 PASO A PASO > 🔄 SINCRONIZAR</p>
+        </div>
+
+        <h2>¿Qué se instala?</h2>
+        <div class="section">
+          <ul style="margin-left: 20px; line-height: 2;">
+            <li>✅ Hoja "Maestro" con estructura de 22 columnas</li>
+            <li>✅ Hoja "Dashboard" con gráficos automáticos</li>
+            <li>✅ Hoja "Derivación" para controlar derivaciones</li>
+            <li>✅ Hoja "Reportes" con reportes automáticos</li>
+            <li>✅ Hoja "Configuración" para datos de acceso</li>
+            <li>✅ Hoja "Log" con auditoría de cambios</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- TAB 3: CONFIGURAR KOBO -->
+      <div id="configurar" class="tab-content">
+        <h1>⚙️ Configuración de Kobo</h1>
+
+        <div class="input-group">
+          <label>📁 ID de Carpeta Google Drive:</label>
+          <input type="text" id="carpetaId" value="${carpetaId}" placeholder="1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU">
+          <div class="info-box">📌 Copia desde: drive.google.com/drive/folders/<strong>AQUÍ_VA_EL_ID</strong></div>
+        </div>
+
+        <div class="input-group">
+          <label>🔑 API Key de KoboToolbox:</label>
+          <textarea id="apiKey" placeholder="Pega tu API Key aquí">${apiKey}</textarea>
+          <div class="info-box">
+            🔗 Obtén en: <strong>https://kf.kobotoolbox.org/admin/auth/token/</strong><br>
+            Asset ID: <strong>abHRWdRnPhKwzPQBajc7RZ</strong>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="guardarConfiguracionCompleta()">💾 GUARDAR CONFIGURACIÓN</button>
+          <button class="btn-warning" onclick="probarConexionDesdeConfig()">🧪 PROBAR CONEXIÓN</button>
+        </div>
+
+        <h2>🔐 Seguridad</h2>
+        <div class="section">
+          <p>La API Key se guarda de forma segura en Google Properties Service.</p>
+          <p>🚨 <strong>NO la compartas ni publiques en Git</strong></p>
+        </div>
+      </div>
+
+      <!-- TAB 4: RESPALDAR/RESTAURAR -->
+      <div id="respaldar" class="tab-content">
+        <h1>💾 Respaldar y Restaurar Datos</h1>
+
+        <h2>📥 Respaldar Datos</h2>
+        <div class="section">
+          <p>Descarga una copia de todos tus datos en Google Drive</p>
+          <button class="btn-primary" onclick="google.script.run.respaldarDatos()">📥 RESPALDAR AHORA</button>
+        </div>
+
+        <h2>📤 Restaurar Datos</h2>
+        <div class="section">
+          <p>⚠️ Restaurar eliminará datos actuales y cargará un respaldo anterior</p>
+          <button class="btn-warning" onclick="if(confirm('¿Seguro? Esto eliminará datos actuales')){google.script.run.restaurarDatos()}">📤 RESTAURAR RESPALDO</button>
+        </div>
+
+        <h2>📊 Exportar a CSV</h2>
+        <div class="section">
+          <p>Exporta todos los datos de la hoja Maestro a CSV</p>
+          <button class="btn-secondary" onclick="google.script.run.exportarCSV()">📊 EXPORTAR CSV</button>
+        </div>
+      </div>
+
+      <!-- TAB 5: DESINSTALAR -->
+      <div id="desinstalar" class="tab-content">
+        <h1>🗑️ Desinstalar Sistema</h1>
+
+        <div class="section" style="background: #ffebee; border-left-color: #f44336;">
+          <p><strong>⚠️ ADVERTENCIA:</strong> Esto eliminará TODAS las hojas del sistema</p>
+          <p>Los datos NO se recuperarán después</p>
+        </div>
+
+        <h2>Opciones de Desinstalación</h2>
+
+        <div class="step">
+          <span class="step-number">1</span>
+          <strong>Desinstalar TODO el sistema</strong>
+          <p style="margin-top: 5px; color: #666;">Elimina todas las hojas (Maestro, Dashboard, etc.)</p>
+          <button class="btn-danger" onclick="if(confirm('¿SEGURO? Esto eliminará TODO. Escribe DESINSTALAR para confirmar')) { var pass = prompt('Escribe DESINSTALAR para confirmar'); if(pass === 'DESINSTALAR') { google.script.run.desinstalarSistemaCompleto(); } else { alert('Cancelado'); } }">🗑️ DESINSTALAR TODO</button>
+        </div>
+
+        <div class="step">
+          <span class="step-number">2</span>
+          <strong>Limpiar solo datos (mantener hojas)</strong>
+          <p style="margin-top: 5px; color: #666;">Elimina todos los participantes pero mantiene la estructura</p>
+          <button class="btn-warning" onclick="if(confirm('¿Seguro? Esto eliminará todos los datos de participantes')) { google.script.run.limpiarDatos(); }">🧹 LIMPIAR DATOS</button>
+        </div>
+
+        <div class="step">
+          <span class="step-number">3</span>
+          <strong>Eliminar hoja específica</strong>
+          <p style="margin-top: 5px; color: #666;">Elige qué hoja eliminar</p>
+          <select id="hojaAEliminar" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #ddd;">
+            <option>-- Selecciona una hoja --</option>
+            ${hojasExistentes.map(h => \`<option value="\${h}">\${h}</option>\`).join('')}
+          </select>
+          <button class="btn-danger" onclick="const hoja = document.getElementById('hojaAEliminar').value; if(hoja && hoja !== '-- Selecciona una hoja --' && confirm('¿Eliminar ' + hoja + '?')) { google.script.run.eliminarHoja(hoja); }">❌ ELIMINAR HOJA</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function cambiarTab(tabName) {
+        // Ocultar todos
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+        // Mostrar seleccionado
+        document.getElementById(tabName).classList.add('active');
+        event.target.classList.add('active');
+      }
+
+      function guardarConfiguracionCompleta() {
+        const carpeta = document.getElementById('carpetaId').value.trim();
+        const apiKey = document.getElementById('apiKey').value.trim();
+
+        if (!carpeta || !apiKey) {
+          alert('❌ Completa todos los campos');
+          return;
+        }
+
+        google.script.run.guardarConfiguracionScript(carpeta, apiKey);
+        alert('✅ Configuración guardada');
+      }
+
+      function probarConexionDesdeConfig() {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        if (!apiKey) {
+          alert('❌ Ingresa la API Key');
+          return;
+        }
+        google.script.run.probarConexionKoboAPI(apiKey);
+      }
+    </script>
+  `);
     <style>
       body { font-family: 'Arial', sans-serif; padding: 20px; background: #f0f2f5; }
       .container { max-width: 700px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
@@ -203,7 +455,195 @@ function mostrarConfiguracion() {
     </script>
   `);
 
-  SpreadsheetApp.getUi().showModelessDialog(html, '⚙️ Configuración');
+  SpreadsheetApp.getUi().showModelessDialog(html, '⚙️ CONFIGURACIÓN COMPLETA - Paso a Paso v4.0');
+}
+
+// ============================================================================
+// FUNCIONES DE INSTALACIÓN Y DESINSTALACIÓN
+// ============================================================================
+
+function instalarSistemaCompleto() {
+  try {
+    log("=== INICIANDO INSTALACIÓN COMPLETA ===", "INFO");
+
+    const ss = getSpreadsheet();
+
+    // Crear todas las hojas
+    const hojas = [
+      CONFIG.HOJAS.MAESTRO,
+      CONFIG.HOJAS.DASHBOARD,
+      CONFIG.HOJAS.DERIVACION,
+      CONFIG.HOJAS.REPORTES,
+      CONFIG.HOJAS.CONFIGURACION,
+      CONFIG.HOJAS.LOG
+    ];
+
+    for (const hoja of hojas) {
+      crearHojaSiNoExiste(hoja);
+    }
+
+    // Crear encabezados en Maestro
+    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
+    if (hojaM.getLastRow() === 0) {
+      const encabezados = [
+        'Creamos_ID', 'Fecha_Sincronización', 'Nombre_Completo', 'DPI', 'Edad', 'Género',
+        'Teléfono', 'Zona', 'Email', 'Nivel_Educativo', 'Situación_Laboral', 'Fortalezas',
+        'Objetivo_Laboral', 'Perfil_Asignado', 'Prioridad', 'Puntaje_Total',
+        'Dim_Educativo', 'Dim_Laboral', 'Dim_Digital', 'Dim_Vocacional', 'Dim_Barreras', 'Dim_Apoyo'
+      ];
+      hojaM.appendRow(encabezados);
+      log('✅ Encabezados creados en Maestro', 'INFO');
+    }
+
+    // Crear encabezados en Derivación
+    const hojaD = getHoja(CONFIG.HOJAS.DERIVACION);
+    if (hojaD.getLastRow() === 0) {
+      hojaD.appendRow(['Creamos_ID', 'Nombre', 'Perfil', 'Derivado_A', 'Fecha_Derivación', 'Estado_Derivación', 'Notas']);
+    }
+
+    // Crear encabezados en Log
+    const hojaL = getHoja(CONFIG.HOJAS.LOG);
+    if (hojaL.getLastRow() === 0) {
+      hojaL.appendRow(['Fecha', 'Tipo', 'Mensaje']);
+    }
+
+    log('✅ Sistema instalado completamente', 'INFO');
+    SpreadsheetApp.getUi().alert('✅ INSTALACIÓN COMPLETADA\n\nTodas las hojas se crearon exitosamente\n\nAhora configura tu API Key de Kobo');
+
+  } catch (error) {
+    log(`Error en instalación: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error en instalación: ${error}`);
+  }
+}
+
+function desinstalarSistemaCompleto() {
+  try {
+    log("=== DESINSTALANDO SISTEMA COMPLETO ===", "WARN");
+
+    const ss = getSpreadsheet();
+
+    const hojas = [
+      CONFIG.HOJAS.MAESTRO,
+      CONFIG.HOJAS.DASHBOARD,
+      CONFIG.HOJAS.DERIVACION,
+      CONFIG.HOJAS.REPORTES,
+      CONFIG.HOJAS.CONFIGURACION,
+      CONFIG.HOJAS.LOG
+    ];
+
+    for (const nombreHoja of hojas) {
+      const hoja = ss.getSheetByName(nombreHoja);
+      if (hoja) {
+        ss.deleteSheet(hoja);
+        log(`🗑️ Hoja eliminada: ${nombreHoja}`, 'WARN');
+      }
+    }
+
+    // Limpiar propiedades
+    const props = PropertiesService.getUserProperties();
+    props.deleteProperty('KOBO_API_KEY');
+    props.deleteProperty('FOLDER_PARTICIPANTES_ID');
+
+    log('✅ Sistema desinstalado completamente', 'WARN');
+    SpreadsheetApp.getUi().alert('✅ DESINSTALACIÓN COMPLETADA\n\nTodas las hojas se eliminaron\n\nPuedes instalar de nuevo cuando quieras');
+
+  } catch (error) {
+    log(`Error en desinstalación: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  }
+}
+
+function limpiarDatos() {
+  try {
+    log("=== LIMPIANDO DATOS ===", "WARN");
+
+    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
+    if (hojaM && hojaM.getLastRow() > 1) {
+      hojaM.deleteRows(2, hojaM.getLastRow() - 1);
+      log('✅ Datos de Maestro eliminados', 'WARN');
+    }
+
+    const hojaD = getHoja(CONFIG.HOJAS.DERIVACION);
+    if (hojaD && hojaD.getLastRow() > 1) {
+      hojaD.deleteRows(2, hojaD.getLastRow() - 1);
+      log('✅ Datos de Derivación eliminados', 'WARN');
+    }
+
+    SpreadsheetApp.getUi().alert('✅ DATOS LIMPIADOS\n\nLas estructuras se mantienen, solo se borraron los datos');
+
+  } catch (error) {
+    log(`Error limpiando datos: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  }
+}
+
+function eliminarHoja(nombreHoja) {
+  try {
+    const ss = getSpreadsheet();
+    const hoja = ss.getSheetByName(nombreHoja);
+
+    if (hoja) {
+      ss.deleteSheet(hoja);
+      log(`🗑️ Hoja eliminada: ${nombreHoja}`, 'WARN');
+      SpreadsheetApp.getUi().alert(`✅ Hoja "${nombreHoja}" eliminada`);
+    } else {
+      SpreadsheetApp.getUi().alert('⚠️ Hoja no encontrada');
+    }
+  } catch (error) {
+    log(`Error eliminando hoja: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  }
+}
+
+function respaldarDatos() {
+  try {
+    log("=== RESPALDANDO DATOS ===", "INFO");
+
+    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
+    const datos = hojaM.getDataRange().getValues();
+
+    const carpeta = DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
+    const nombreArchivo = `Respaldo_Paso_a_Paso_${new Date().toISOString().split('T')[0]}.csv`;
+
+    let csv = datos.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+    const file = carpeta.createFile(nombreArchivo, csv, MimeType.PLAIN_TEXT);
+
+    log(`✅ Respaldo creado: ${nombreArchivo}`, 'INFO');
+    SpreadsheetApp.getUi().alert(`✅ Respaldo creado\n\nArchivo: ${nombreArchivo}`);
+
+  } catch (error) {
+    log(`Error respaldando: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  }
+}
+
+function restaurarDatos() {
+  log('📤 Función restaurar disponible pronto', 'INFO');
+  SpreadsheetApp.getUi().alert('⏳ Función disponible en próxima versión');
+}
+
+function exportarCSV() {
+  try {
+    log("=== EXPORTANDO A CSV ===", "INFO");
+
+    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
+    const datos = hojaM.getDataRange().getValues();
+
+    const carpeta = DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
+    const nombreArchivo = `Exportar_Paso_a_Paso_${new Date().toISOString().split('T')[0]}.csv`;
+
+    let csv = datos.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+    const file = carpeta.createFile(nombreArchivo, csv, MimeType.PLAIN_TEXT);
+
+    log(`✅ Exportación creada: ${nombreArchivo}`, 'INFO');
+    SpreadsheetApp.getUi().alert(`✅ Archivo exportado\n\nArchivo: ${nombreArchivo}`);
+
+  } catch (error) {
+    log(`Error exportando: ${error}`, 'ERROR');
+    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  }
 }
 
 function guardarConfiguracionScript(carpetaId, apiKey) {
