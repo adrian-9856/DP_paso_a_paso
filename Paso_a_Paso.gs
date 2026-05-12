@@ -10,18 +10,32 @@
 // ============================================================================
 
 function onOpen() {
-  cargarConfiguracion();
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('📊 PASO A PASO')
-    .addItem('⚙️ Configuración', 'mostrarConfiguracion')
-    .addSeparator()
-    .addItem('📥 Sincronizar Kobo (Manual)', 'sincronizarKoboManual')
-    .addItem('📊 Ver Estadísticas', 'mostrarEstadisticas')
-    .addItem('🔔 Revisar Alertas', 'revisarAlertasMentoria')
-    .addItem('📁 Crear Carpeta Participante', 'crearCarpetaParticipante')
-    .addSeparator()
-    .addItem('📖 Ayuda', 'mostrarAyuda')
-    .addToUi();
+  try {
+    cargarConfiguracion();
+
+    // Verificar y crear hoja si es necesario
+    try {
+      getHojaMatriz();
+    } catch (error) {
+      log(`Creando estructura inicial: ${error}`, 'INFO');
+    }
+
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('📊 PASO A PASO')
+      .addItem('⚙️ Configuración', 'mostrarConfiguracion')
+      .addSeparator()
+      .addItem('📥 Sincronizar Kobo (Manual)', 'sincronizarKoboManual')
+      .addItem('📊 Ver Estadísticas', 'mostrarEstadisticas')
+      .addItem('🔔 Revisar Alertas', 'revisarAlertasMentoria')
+      .addItem('📁 Crear Carpeta Participante', 'crearCarpetaParticipante')
+      .addSeparator()
+      .addItem('📖 Ayuda', 'mostrarAyuda')
+      .addToUi();
+
+    log('✅ Sistema Paso a Paso iniciado', 'INFO');
+  } catch (error) {
+    log(`Error en onOpen: ${error}`, 'ERROR');
+  }
 }
 
 // ============================================================================
@@ -116,15 +130,56 @@ function cargarConfiguracion() {
 // ============================================================================
 
 function getSpreadsheet() {
-  return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  try {
+    return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  } catch (error) {
+    log(`Error abriendo spreadsheet: ${error}`, 'ERROR');
+    throw new Error('No se pudo abrir el Google Sheet. Verifica el ID.');
+  }
 }
 
 function getHojaMatriz() {
-  return getSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
+  try {
+    const ss = getSpreadsheet();
+    let hoja = ss.getSheetByName(CONFIG.SHEET_NAME);
+
+    // Si la hoja no existe, crearla automáticamente
+    if (!hoja) {
+      log(`Hoja "${CONFIG.SHEET_NAME}" no encontrada. Creando...`, 'WARN');
+      hoja = ss.insertSheet(CONFIG.SHEET_NAME);
+
+      // Crear encabezados automáticamente
+      const encabezados = [
+        'ID_Creamos', 'Fecha_Registro', 'Nombre_Completo', 'DPI', 'Edad', 'Genero', 'Telefono',
+        'Zona', 'Nivel_Educativo', 'Problemas_Vitales', 'Conciencia_Participante',
+        'Perfil_Resultante', 'Estado_Actual', 'Fecha_Ultimo_Cambio', 'Responsable_Actual',
+        'Inicio_Mentoria', 'Sesiones_Completadas', 'Ultima_Sesion', 'Duracion_Meses',
+        'Alerta_Mentoria', 'Proxima_Sesion', 'Carpeta_Drive_ID', 'Expediente_ID',
+        'Expediente_URL', 'Foto_URL', 'Fuente', 'Programa', 'Tipo_Derivacion',
+        'Derivado_A', 'Tipo_Cierre', 'Fecha_Cierre', 'Resultado_Final', 'Encargado_Cierre'
+      ];
+
+      hoja.appendRow(encabezados);
+      log(`✅ Hoja "${CONFIG.SHEET_NAME}" creada con encabezados`, 'INFO');
+    }
+
+    return hoja;
+  } catch (error) {
+    log(`Error obteniendo hoja: ${error}`, 'ERROR');
+    throw new Error(`Error: No se pudo acceder a la hoja "${CONFIG.SHEET_NAME}". ${error}`);
+  }
 }
 
 function getCarpetaRaiz() {
-  return DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
+  try {
+    if (!CONFIG.FOLDER_PARTICIPANTES_ID) {
+      throw new Error('ID de carpeta no configurado');
+    }
+    return DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
+  } catch (error) {
+    log(`Error accediendo carpeta: ${error}`, 'ERROR');
+    throw new Error(`Error: La carpeta no existe o el ID es incorrecto. ${error}`);
+  }
 }
 
 function log(msg, tipo = "INFO") {
@@ -137,6 +192,13 @@ function log(msg, tipo = "INFO") {
 // ============================================================================
 
 function mostrarConfiguracion() {
+  try {
+    const hoja = getHojaMatriz();
+    const datosExisten = hoja.getDataRange().getNumRows() > 1;
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('⚠️ Inicializando sistema...\n\nSe está creando la estructura automáticamente.');
+  }
+
   const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || '';
 
   const html = HtmlService.createHtmlOutput(`
