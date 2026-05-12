@@ -131,7 +131,7 @@ function configurarTriggers() {
   ScriptApp.newTrigger('sincronizarAutomatico').timeBased().atHour(8).everyDays(1).create();
 
   // Email semanal lunes 9 AM
-  ScriptApp.newTrigger('enviarReporteSemanal').timeBased().atHour(9).onWeeksMonday().create();
+  ScriptApp.newTrigger('enviarReporteSemanal').timeBased().atHour(9).onMonday().create();
 
   // Verificar casos dormidos diariamente 10 AM
   ScriptApp.newTrigger('verificarCasosDormidos').timeBased().atHour(10).everyDays(1).create();
@@ -351,6 +351,61 @@ function verificarCasosDormidos() {
   }
 }
 
+function enviarReporteSemanal() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) return;
+
+    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues().filter(r => r[0]);
+    const hoy = new Date();
+    const hace7dias = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const nuevos = datos.filter(r => {
+      const fecha = new Date(r[CONFIG.COL.FECHA - 1]);
+      return fecha >= hace7dias;
+    });
+
+    const criticos = datos.filter(r => r[CONFIG.COL.PRIORIDAD - 1] === 'CRÍTICO');
+    const dormidos = datos.filter(r => {
+      const diasSinContacto = Math.floor((hoy - new Date(r[CONFIG.COL.FECHA - 1])) / (1000 * 60 * 60 * 24));
+      return diasSinContacto > 30;
+    });
+
+    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+    const asunto = '📊 Reporte semanal - Paso a Paso';
+    let body = '═════════════════════════════════════\n';
+    body += '📊 REPORTE SEMANAL - PASO A PASO\n';
+    body += '═════════════════════════════════════\n\n';
+    body += 'Semana: ' + Utilities.formatDate(hace7dias, Session.getScriptTimeZone(), 'dd/MM') + ' - ' + Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'dd/MM/yyyy') + '\n\n';
+
+    body += '✨ NUEVOS PARTICIPANTES: ' + nuevos.length + '\n';
+    nuevos.forEach(r => {
+      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' (' + r[CONFIG.COL.PERFIL - 1] + ')\n';
+    });
+
+    body += '\n🔴 CASOS CRÍTICOS: ' + criticos.length + '\n';
+    criticos.forEach(r => {
+      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' - ' + r[CONFIG.COL.ESTADO - 1] + '\n';
+    });
+
+    body += '\n⏰ PENDIENTES (30+ días): ' + dormidos.length + '\n';
+    dormidos.forEach(r => {
+      const dias = Math.floor((hoy - new Date(r[CONFIG.COL.FECHA - 1])) / (1000 * 60 * 60 * 24));
+      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' (' + dias + ' días sin cambio)\n';
+    });
+
+    body += '\n═════════════════════════════════════\n';
+    body += 'Total participantes: ' + datos.length + '\n';
+    body += 'Abre el sheet para ver detalles.\n\n';
+    body += 'Sistema Paso a Paso';
+
+    MailApp.sendEmail(adminEmail, asunto, body);
+  } catch(e) {
+    // Error silencioso
+  }
+}
+
 // ============================================================================
 // HISTORIAL DE CAMBIOS (onEdit)
 // ============================================================================
@@ -368,23 +423,59 @@ function onEdit(e) {
 
     if (fila < 2 || !valorNuevo || valorNuevo === valorAnterior) return;
 
+    // Registrar en log
     const logSheet = e.source.getSheetByName('Log');
-    if (!logSheet) return;
+    if (logSheet) {
+      const ahora = new Date();
+      const usuario = Session.getEffectiveUser().getEmail();
+      logSheet.appendRow([ahora, CONFIG.HOJA, fila, columna, valorAnterior, valorNuevo, usuario]);
+    }
 
-    const ahora = new Date();
-    const usuario = Session.getEffectiveUser().getEmail();
-
-    logSheet.appendRow([
-      ahora,
-      CONFIG.HOJA,
-      fila,
-      columna,
-      valorAnterior,
-      valorNuevo,
-      usuario
-    ]);
+    // Si cambió ESTADO, PERFIL o PRIORIDAD, actualizar documento del participante
+    if ([CONFIG.COL.ESTADO, CONFIG.COL.PERFIL, CONFIG.COL.PRIORIDAD].includes(columna)) {
+      const datos = sheet.getRange(fila, 1, 1, 26).getValues()[0];
+      const docId = datos[CONFIG.COL.DOC_ID - 1];
+      if (docId) {
+        sincronizarConDocumento(docId, datos, columna, valorNuevo);
+      }
+    }
   } catch(e) {
     // Fallo silencioso
+  }
+}
+
+function sincronizarConDocumento(docId, datos, columnaModificada, valorNuevo) {
+  try {
+    const doc = DocumentApp.openById(docId);
+    const body = doc.getBody();
+    const texto = body.getText();
+
+    const id = datos[CONFIG.COL.ID - 1] || '';
+    const perfil = datos[CONFIG.COL.PERFIL - 1] || '—';
+    const prioridad = datos[CONFIG.COL.PRIORIDAD - 1] || '—';
+    const estado = datos[CONFIG.COL.ESTADO - 1] || '—';
+
+    // Actualizar la línea de "ID: ... Perfil: ... Prioridad: ..."
+    const patronId = /ID: [^\n|]+\s*\|\s*Perfil: [^\n|]+\s*\|\s*Prioridad: [^\n]*/;
+    const nuevaLineaId = 'ID: ' + id + '   |   Perfil: ' + perfil + '   |   Prioridad: ' + prioridad;
+    body.replaceText(patronId, nuevaLineaId);
+
+    // Si cambió ESTADO, agregar nota de actualización al final
+    if (columnaModificada === CONFIG.COL.ESTADO) {
+      const ahora = new Date();
+      const fechaHora = Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+      const usuario = Session.getEffectiveUser().getEmail();
+
+      const parrafos = body.getParagraphs();
+      if (parrafos.length > 0) {
+        const ultimoParrafo = parrafos[parrafos.length - 1];
+        ultimoParrafo.appendText('\n\n📝 Actualización: ' + fechaHora + '\nNuevo estado: ' + valorNuevo + '\nPor: ' + usuario);
+      }
+    }
+
+    doc.saveAndClose();
+  } catch(e) {
+    // Error silencioso - el documento puede haber sido movido o eliminado
   }
 }
 
