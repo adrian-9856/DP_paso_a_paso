@@ -40,10 +40,10 @@ function onOpen() {
       .addItem('📋 Ver Ficha', 'verFicha')
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
-      .addItem('➡️ Registrar Derivación', 'abrirFormDerivacion')
+      .addItem('📈 Analytics', 'abrirAnalytics')
+      .addItem('➡️ Derivaciones', 'verDerivaciones')
       .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addSeparator()
-      .addItem('📈 Estadísticas', 'verEstadisticas')
       .addItem('🧪 Probar Kobo', 'probarKobo')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
@@ -84,9 +84,20 @@ function instalar() {
     // Crear hoja Derivaciones
     if (!ss.getSheetByName('Derivaciones')) {
       const deriv = ss.insertSheet('Derivaciones');
-      deriv.appendRow(['Fecha','Participante_ID','Participante_Nombre','Organización_Destino','Motivo','Resultado','Fecha_Seguimiento','Notas']);
-      deriv.getRange(1, 1, 1, 8).setBackground('#1f73e6').setFontColor('#ffffff').setFontWeight('bold');
+      deriv.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
+      deriv.getRange(1, 1, 1, 10).setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
       deriv.setFrozenRows(1);
+      deriv.setColumnWidth(3, 180);
+      deriv.setColumnWidth(5, 220);
+      deriv.setColumnWidth(6, 250);
+    }
+
+    // Crear hoja Analytics
+    if (!ss.getSheetByName('Analytics')) {
+      const an = ss.insertSheet('Analytics');
+      an.appendRow(['ANALYTICS - PASO A PASO']);
+      an.getRange(1, 1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
+      an.setFrozenRows(1);
     }
 
     // Crear hoja Log
@@ -220,10 +231,12 @@ function sincronizar(silencioso) {
 
       hoja.appendRow(fila);
       colorearFila(hoja, hoja.getLastRow(), fila[CONFIG.COL.PERFIL - 1]);
+      registrarDerivacionesAutomaticas(ss, id, nombre, fila, r);
       agregados++;
     });
 
     actualizarDashboard();
+    actualizarAnalytics(ss);
 
     if (!silencioso) {
       SpreadsheetApp.getUi().alert('✅ Sincronizado\n👤 ' + agregados + ' nuevos\n📊 ' + registros.length + ' en Kobo');
@@ -975,6 +988,242 @@ function svgBarras(dims, color) {
     const pct = Math.round((v/10)*100);
     return '<div style="margin:5px 0"><div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px"><span>' + lbs[i] + '</span><span>' + v + '/10</span></div><div style="background:#eee;border-radius:3px;height:6px"><div style="width:' + pct + '%;background:' + color + ';height:6px"></div></div></div>';
   }).join('');
+}
+
+// ============================================================================
+// DERIVACIONES AUTOMÁTICAS
+// ============================================================================
+
+function registrarDerivacionesAutomaticas(ss, id, nombre, fila, datosKobo) {
+  try {
+    const deriv = ss.getSheetByName('Derivaciones');
+    if (!deriv) return;
+
+    const perfil    = fila[CONFIG.COL.PERFIL - 1] || '';
+    const prioridad = fila[CONFIG.COL.PRIORIDAD - 1] || '';
+    const dimBarreras = Number(fila[CONFIG.COL.DIM5 - 1]) || 0;
+    const dimDigital  = Number(fila[CONFIG.COL.DIM3 - 1]) || 0;
+    const dimEducativo = Number(fila[CONFIG.COL.DIM1 - 1]) || 0;
+    const dimApoyo    = Number(fila[CONFIG.COL.DIM6 - 1]) || 0;
+    const fecha = new Date();
+
+    const agregarDerivacion = (tipo, destino, motivo) => {
+      deriv.appendRow([fecha, id, nombre, tipo, destino, motivo, 'Pendiente', '', '', '']);
+      const ultima = deriv.getLastRow();
+      const color = tipo === '🚨 URGENTE' ? '#ffcdd2' : '#fff9c4';
+      deriv.getRange(ultima, 1, 1, 10).setBackground(color);
+    };
+
+    // PERFIL D → Derivaciones urgentes
+    if (perfil === 'Perfil D' || prioridad === 'CRÍTICO') {
+      agregarDerivacion('🚨 URGENTE', 'Creamos Voces (Apoyo Emocional)', 'Barreras críticas detectadas - Perfil ' + perfil);
+      if (dimBarreras <= 4) {
+        agregarDerivacion('🚨 URGENTE', 'Servicios Profesionales (Legal/Salud)', 'Dimensión barreras estructurales crítica: ' + dimBarreras + '/10');
+      }
+      enviarAlertaBarrerasCriticas(id, nombre, perfil, dimBarreras);
+    }
+
+    // PERFIL B → Mentoría vocacional
+    if (perfil === 'Perfil B') {
+      agregarDerivacion('💡 SUGERIDA', 'Mentoría Vocacional (Fito)', 'No reconoce su valor/habilidades - Requiere 3-6 sesiones');
+    }
+
+    // PERFIL C → Formación y educación
+    if (perfil === 'Perfil C') {
+      if (dimEducativo <= 4) {
+        agregarDerivacion('💡 SUGERIDA', 'Educación de Adultos', 'Capital educativo bajo: ' + dimEducativo + '/10');
+      }
+      if (dimDigital <= 4) {
+        agregarDerivacion('💡 SUGERIDA', 'Alfabetización Digital', 'Habilidades digitales bajas: ' + dimDigital + '/10');
+      }
+      agregarDerivacion('💡 SUGERIDA', 'Formación Técnica', 'Desarrollo de capital humano requerido');
+    }
+
+    // Barreras críticas sin importar perfil
+    if (dimBarreras <= 3 && perfil !== 'Perfil D') {
+      agregarDerivacion('⚠️ ALERTA', 'Creamos Voces (Apoyo Emocional)', 'Barreras estructurales muy bajas: ' + dimBarreras + '/10');
+    }
+
+    // Red de apoyo débil
+    if (dimApoyo <= 3) {
+      agregarDerivacion('💡 SUGERIDA', 'Grupos de Apoyo Comunitario', 'Red de apoyo débil: ' + dimApoyo + '/10');
+    }
+
+    // PERFIL A → Lista para empleo directo
+    if (perfil === 'Perfil A') {
+      agregarDerivacion('✅ OPORTUNIDAD', 'Intermediación Laboral (Bolsa de empleo)', 'Lista para empleo directo - ' + (Number(fila[CONFIG.COL.PUNTAJE - 1]) || 0) + '/60 pts');
+    }
+  } catch(e) {
+    // Error silencioso
+  }
+}
+
+function enviarAlertaBarrerasCriticas(id, nombre, perfil, dimBarreras) {
+  try {
+    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+    const asunto = '🚨 ALERTA URGENTE: Barreras críticas — ' + nombre;
+    const body =
+      '🚨 CASO URGENTE DETECTADO EN SINCRONIZACIÓN\n' +
+      '═══════════════════════════════════════════\n\n' +
+      'Participante: ' + nombre + '\n' +
+      'ID: ' + id + '\n' +
+      'Perfil: ' + perfil + '\n' +
+      'Barreras estructurales: ' + dimBarreras + '/10\n\n' +
+      'ACCIONES REQUERIDAS:\n' +
+      '• Derivar URGENTE a Creamos Voces (Apoyo Emocional)\n' +
+      '• Derivar a Servicios Profesionales (Legal/Salud)\n' +
+      '• NO iniciar proceso de empleo hasta resolver barreras\n\n' +
+      'Abre el Sheet para ver el expediente completo.\n\n' +
+      'Sistema Paso a Paso — Alerta Automática';
+    MailApp.sendEmail(adminEmail, asunto, body);
+  } catch(e) {}
+}
+
+function verDerivaciones() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const sheet = ss.getSheetByName('Derivaciones');
+    if (!sheet) {
+      SpreadsheetApp.getUi().alert('❌ Instala el sistema primero.');
+      return;
+    }
+    ss.setActiveSheet(sheet);
+
+    const pendientes = sheet.getLastRow() > 1
+      ? sheet.getRange(2, 7, sheet.getLastRow() - 1, 1).getValues().filter(r => r[0] === 'Pendiente').length
+      : 0;
+
+    if (pendientes > 0) {
+      SpreadsheetApp.getUi().alert('📋 Hoja Derivaciones abierta\n\n⚠️ Tienes ' + pendientes + ' derivación(es) PENDIENTE(S).\n\nCambia el Estado a "Completado" cuando las hayas gestionado.');
+    }
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+  }
+}
+
+// ============================================================================
+// ANALYTICS
+// ============================================================================
+
+function abrirAnalytics() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    actualizarAnalytics(ss);
+    ss.setActiveSheet(ss.getSheetByName('Analytics'));
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+  }
+}
+
+function actualizarAnalytics(ss) {
+  try {
+    if (!ss) ss = SpreadsheetApp.getActive();
+    const hoja  = ss.getSheetByName(CONFIG.HOJA);
+    const an    = ss.getSheetByName('Analytics');
+    const deriv = ss.getSheetByName('Derivaciones');
+    if (!hoja || !an) return;
+
+    an.clear();
+    const ahora = new Date();
+    const tz = Session.getScriptTimeZone();
+
+    const datos = hoja.getLastRow() > 1
+      ? hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues().filter(r => r[0])
+      : [];
+    const total = datos.length;
+
+    // ─── Encabezado ───
+    an.appendRow(['ANALYTICS — PASO A PASO']);
+    an.getRange(1, 1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
+    an.appendRow(['Actualizado: ' + Utilities.formatDate(ahora, tz, 'dd/MM/yyyy HH:mm') + '   |   Total: ' + total + ' participantes']);
+    an.getRange(2, 1).setFontColor('#888');
+    an.appendRow([]);
+
+    const titulo = (txt, color) => {
+      an.appendRow([txt]);
+      an.getRange(an.getLastRow(), 1).setFontWeight('bold').setFontColor(color || '#6a1b9a').setFontSize(12);
+    };
+    const fila2 = (a, b, bg) => {
+      an.appendRow([a, b]);
+      if (bg) an.getRange(an.getLastRow(), 1, 1, 2).setBackground(bg);
+    };
+
+    // ─── Perfiles ───
+    titulo('POR PERFIL');
+    const perfilesCnt = { 'Perfil A': 0, 'Perfil B': 0, 'Perfil C': 0, 'Perfil D': 0, 'Sin perfil': 0 };
+    datos.forEach(r => { const p = normalizarPerfil(r[CONFIG.COL.PERFIL-1]); perfilesCnt[p] = (perfilesCnt[p]||0)+1; });
+    fila2('🟢 Perfil A — Listo para empleo', perfilesCnt['Perfil A'], '#d9ead3');
+    fila2('🔵 Perfil B — Orientación vocacional', perfilesCnt['Perfil B'], '#cfe2f3');
+    fila2('🟡 Perfil C — Desarrollo de capacidades', perfilesCnt['Perfil C'], '#fff2cc');
+    fila2('🔴 Perfil D — Barreras críticas URGENTE', perfilesCnt['Perfil D'], '#f4cccc');
+    fila2('⬜ Sin perfil asignado', perfilesCnt['Sin perfil'] || 0);
+    an.appendRow([]);
+
+    // ─── Prioridades ───
+    titulo('POR PRIORIDAD');
+    const prioCnt = { 'CRÍTICO': 0, 'ALTO': 0, 'MEDIO': 0, 'BAJO': 0 };
+    datos.forEach(r => { const p = normalizarPrioridad(r[CONFIG.COL.PRIORIDAD-1]); prioCnt[p] = (prioCnt[p]||0)+1; });
+    fila2('🔴 CRÍTICO', prioCnt['CRÍTICO'], '#ffcdd2');
+    fila2('🟠 ALTO',    prioCnt['ALTO'],    '#ffe0b2');
+    fila2('🟡 MEDIO',   prioCnt['MEDIO'],   '#fff9c4');
+    fila2('🟢 BAJO',    prioCnt['BAJO'],    '#c8e6c9');
+    an.appendRow([]);
+
+    // ─── Promedios por dimensión ───
+    titulo('PROMEDIO POR DIMENSIÓN (escala 0-10)');
+    const dims = [
+      [CONFIG.COL.DIM1, '📚 Capital Educativo'],
+      [CONFIG.COL.DIM2, '💼 Capital Laboral'],
+      [CONFIG.COL.DIM3, '💻 Habilidades Digitales'],
+      [CONFIG.COL.DIM4, '🎯 Claridad Vocacional'],
+      [CONFIG.COL.DIM5, '🚧 Barreras Estructurales'],
+      [CONFIG.COL.DIM6, '🤝 Red de Apoyo']
+    ];
+    dims.forEach(([col, nombre]) => {
+      const vals = datos.map(r => Number(r[col-1])).filter(v => v > 0);
+      const prom = vals.length ? (vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1) : '—';
+      const bg = prom !== '—' && prom < 4 ? '#ffcdd2' : prom < 7 ? '#fff9c4' : '#c8e6c9';
+      fila2(nombre, prom + ' / 10', prom !== '—' ? bg : null);
+    });
+    an.appendRow([]);
+
+    // ─── Por zona ───
+    titulo('POR ZONA / LUGAR DE RESIDENCIA');
+    const zonas = {};
+    datos.forEach(r => { const z = r[CONFIG.COL.ZONA-1] || 'Sin zona'; zonas[z] = (zonas[z]||0)+1; });
+    Object.entries(zonas).sort((a,b) => b[1]-a[1]).slice(0, 10).forEach(([z, n]) => fila2(z, n));
+    an.appendRow([]);
+
+    // ─── Derivaciones ───
+    titulo('DERIVACIONES');
+    if (deriv && deriv.getLastRow() > 1) {
+      const derivDatos = deriv.getRange(2, 1, deriv.getLastRow()-1, 10).getValues().filter(r => r[0]);
+      const pendientes = derivDatos.filter(r => r[6] === 'Pendiente').length;
+      const completadas = derivDatos.filter(r => r[6] === 'Completado').length;
+      const urgentes = derivDatos.filter(r => r[3] === '🚨 URGENTE').length;
+      fila2('Total derivaciones',  derivDatos.length);
+      fila2('🚨 URGENTES',         urgentes, urgentes > 0 ? '#ffcdd2' : null);
+      fila2('⏳ Pendientes',        pendientes, pendientes > 0 ? '#fff9c4' : null);
+      fila2('✅ Completadas',       completadas, '#c8e6c9');
+    } else {
+      an.appendRow(['Sin derivaciones registradas aún']);
+    }
+    an.appendRow([]);
+
+    // ─── Puntajes ───
+    titulo('DIAGNÓSTICO — PUNTAJE TOTAL');
+    const pts = datos.map(r => Number(r[CONFIG.COL.PUNTAJE-1])).filter(v => v > 0);
+    const prom = pts.length ? Math.round(pts.reduce((a,b) => a+b,0) / pts.length) : 0;
+    fila2('Promedio', prom + ' / 60');
+    fila2('Máximo',   pts.length ? Math.max(...pts) + ' / 60' : '—');
+    fila2('Mínimo',   pts.length ? Math.min(...pts) + ' / 60' : '—');
+    const bajo30 = pts.filter(p => p < 30).length;
+    if (bajo30 > 0) fila2('⚠️ Con puntaje < 30 (necesitan más apoyo)', bajo30, '#ffcdd2');
+
+    // Formato
+    an.setColumnWidth(1, 280);
+    an.setColumnWidth(2, 120);
+  } catch(e) {}
 }
 
 // ============================================================================
