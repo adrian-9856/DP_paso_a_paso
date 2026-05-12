@@ -346,7 +346,7 @@ function mostrarConfiguracionCompleta() {
           <p style="margin-top: 5px; color: #666;">Elige qué hoja eliminar</p>
           <select id="hojaAEliminar" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #ddd;">
             <option>-- Selecciona una hoja --</option>
-            ${hojasExistentes.map(h => \`<option value="\${h}">\${h}</option>\`).join('')}
+            ${hojasExistentes.map(h => '<option value="' + h + '">' + h + '</option>').join('')}
           </select>
           <button class="btn-danger" onclick="const hoja = document.getElementById('hojaAEliminar').value; if(hoja && hoja !== '-- Selecciona una hoja --' && confirm('¿Eliminar ' + hoja + '?')) { google.script.run.eliminarHoja(hoja); }">❌ ELIMINAR HOJA</button>
         </div>
@@ -378,75 +378,6 @@ function mostrarConfiguracionCompleta() {
       }
 
       function probarConexionDesdeConfig() {
-        const apiKey = document.getElementById('apiKey').value.trim();
-        if (!apiKey) {
-          alert('❌ Ingresa la API Key');
-          return;
-        }
-        google.script.run.probarConexionKoboAPI(apiKey);
-      }
-    </script>
-  `);
-    <style>
-      body { font-family: 'Arial', sans-serif; padding: 20px; background: #f0f2f5; }
-      .container { max-width: 700px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-      h1 { color: #1f73e6; border-bottom: 3px solid #1f73e6; padding-bottom: 15px; }
-      .section { background: #f8fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #1f73e6; }
-      label { display: block; font-weight: bold; color: #333; margin: 10px 0 5px 0; }
-      input, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; box-sizing: border-box; margin-bottom: 10px; font-family: monospace; }
-      textarea { min-height: 100px; }
-      button { background: #1f73e6; color: white; padding: 12px 25px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; margin-right: 10px; transition: background 0.3s; }
-      button:hover { background: #1557b0; }
-      .info { background: #e3f2fd; padding: 12px; border-left: 4px solid #1f73e6; border-radius: 4px; color: #0d47a1; }
-      .success { background: #c8e6c9; padding: 12px; border-left: 4px solid #2e7d32; border-radius: 4px; color: #1b5e20; }
-    </style>
-
-    <div class="container">
-      <h1>⚙️ Configuración Paso a Paso v4.0</h1>
-
-      <div class="section">
-        <h3>Google Sheet ID</h3>
-        <div class="success">✅ ${CONFIG.SPREADSHEET_ID.substring(0, 30)}...</div>
-        <p style="font-size: 12px; color: #666;">Detectado automáticamente</p>
-      </div>
-
-      <div class="section">
-        <h3>📁 Carpeta Google Drive</h3>
-        <label>ID de Carpeta "Participantes":</label>
-        <input type="text" id="carpetaId" value="1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU" placeholder="ID de carpeta">
-        <div class="info">📌 URL: drive.google.com/drive/folders/<strong>AQUÍ_VA_EL_ID</strong></div>
-      </div>
-
-      <div class="section">
-        <h3>🔑 API Key de KoboToolbox</h3>
-        <label>Token de API:</label>
-        <textarea id="apiKey" placeholder="Pega tu API Key de Kobo">${apiKey}</textarea>
-        <div class="info">
-          🔗 Obtén aquí: <strong>https://kf.kobotoolbox.org/admin/auth/token/</strong><br>
-          Asset ID: <strong>abHRWdRnPhKwzPQBajc7RZ</strong>
-        </div>
-      </div>
-
-      <button onclick="guardarConfig()">💾 GUARDAR CONFIGURACIÓN</button>
-      <button onclick="probarConexion()">🧪 PROBAR CONEXIÓN</button>
-      <button onclick="window.close()">❌ CERRAR</button>
-    </div>
-
-    <script>
-      function guardarConfig() {
-        const carpeta = document.getElementById('carpetaId').value.trim();
-        const apiKey = document.getElementById('apiKey').value.trim();
-
-        if (!carpeta || !apiKey) {
-          alert('❌ Completa todos los campos');
-          return;
-        }
-
-        google.script.run.guardarConfiguracionScript(carpeta, apiKey);
-        alert('✅ Configuración guardada');
-      }
-
-      function probarConexion() {
         const apiKey = document.getElementById('apiKey').value.trim();
         if (!apiKey) {
           alert('❌ Ingresa la API Key');
