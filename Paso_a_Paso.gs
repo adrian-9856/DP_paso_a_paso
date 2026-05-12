@@ -131,7 +131,7 @@ function configurarTriggers() {
   ScriptApp.newTrigger('sincronizarAutomatico').timeBased().atHour(8).everyDays(1).create();
 
   // Email semanal lunes 9 AM
-  ScriptApp.newTrigger('enviarReporteSemanal').timeBased().atHour(9).onMonday().create();
+  ScriptApp.newTrigger('enviarReporteSemanal').timeBased().atHour(9).onWeekDay(ScriptApp.WeekDay.MONDAY).create();
 
   // Verificar casos dormidos diariamente 10 AM
   ScriptApp.newTrigger('verificarCasosDormidos').timeBased().atHour(10).everyDays(1).create();
