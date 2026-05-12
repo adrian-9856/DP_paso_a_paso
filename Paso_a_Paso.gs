@@ -1,1352 +1,463 @@
 // ============================================================================
-// SISTEMA PASO A PASO - VERSIÓN 4.0 PROFESIONAL
-// Importación de Kobo + Dashboard + Derivaciones + Reportes
+// SISTEMA PASO A PASO - FITO v5.0
+// ============================================================================
+
+// ============================================================================
+// CONFIGURACIÓN — EDITA SOLO ESTA SECCIÓN
+// ============================================================================
+
+const CONFIG = {
+  // Google
+  SPREADSHEET_ID:        SpreadsheetApp.getActive().getId(),
+  FOLDER_PARTICIPANTES_ID: "1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU",
+
+  // Kobo — ya configurado
+  KOBO_API_KEY:  "64cc018b88067397addd36b09288be8b6539cf39",
+  KOBO_ASSET_ID: "abHRWdRnPhKwzPQBajc7RZ",
+  KOBO_URL:      "https://kf.kobotoolbox.org/api/v2",
+
+  // Notificaciones
+  ADMIN_EMAIL: "adrian@creamosguatemla.org",
+
+  // Nombre de la hoja principal
+  HOJA: "Maestro",
+
+  // Colores por perfil
+  COLORES: {
+    "Perfil A": { fondo: "#d9ead3", texto: "#274e13" },
+    "Perfil B": { fondo: "#cfe2f3", texto: "#1c4587" },
+    "Perfil C": { fondo: "#fff2cc", texto: "#7f6000" },
+    "Perfil D": { fondo: "#f4cccc", texto: "#660000" }
+  },
+
+  // Columnas (posición en el sheet, empieza en 1)
+  COL: {
+    ID:         1,   // A
+    FECHA:      2,   // B
+    NOMBRE:     3,   // C
+    DPI:        4,   // D
+    EDAD:       5,   // E
+    GENERO:     6,   // F
+    TELEFONO:   7,   // G
+    ZONA:       8,   // H
+    EMAIL:      9,   // I
+    EDUCACION:  10,  // J
+    LABORAL:    11,  // K
+    FORTALEZAS: 12,  // L
+    OBJETIVO:   13,  // M
+    PERFIL:     14,  // N
+    PRIORIDAD:  15,  // O
+    PUNTAJE:    16,  // P
+    DIM1:       17,  // Q
+    DIM2:       18,  // R
+    DIM3:       19,  // S
+    DIM4:       20,  // T
+    DIM5:       21,  // U
+    DIM6:       22,  // V
+    ESTADO:     23,  // W
+    CARPETA_ID: 24,  // X
+    DOC_ID:     25,  // Y
+    DOC_URL:    26   // Z
+  }
+};
+
+// ============================================================================
+// MENÚ
 // ============================================================================
 
 function onOpen() {
-  try {
-    cargarConfiguracion();
-    const ui = SpreadsheetApp.getUi();
-
-    ui.createMenu('📊 PASO A PASO')
-      .addItem('⚙️ CONFIGURACIÓN COMPLETA', 'mostrarConfiguracionCompleta')
-      .addSeparator()
-      .addItem('🔄 SINCRONIZAR Kobo (Manual)', 'sincronizarKoboCompleto')
-      .addSeparator()
-      .addItem('🎨 Colorear Tabla', 'colorearTabla')
-      .addItem('📊 Dashboard', 'abrirDashboard')
-      .addItem('📋 Ver Reportes', 'abrirReportes')
-      .addItem('📁 Derivaciones Pendientes', 'abrirDerivaciones')
-      .addSeparator()
-      .addItem('🧪 Probar Conexión Kobo', 'probarConexionKoboAPI')
-      .addItem('📖 Ayuda', 'mostrarAyuda')
-      .addToUi();
-
-    log('✅ Sistema iniciado correctamente', 'INFO');
-  } catch (error) {
-    log('Error en onOpen: ' + error, 'ERROR');
-  }
+  cargarApiKey();
+  SpreadsheetApp.getUi()
+    .createMenu('📊 PASO A PASO')
+    .addItem('📥 INSTALAR SISTEMA', 'instalar')
+    .addSeparator()
+    .addItem('🔄 Sincronizar Kobo', 'sincronizar')
+    .addItem('🎨 Colorear Tabla',   'colorearTabla')
+    .addSeparator()
+    .addItem('⚙️ Configuración',    'abrirConfiguracion')
+    .addItem('🧪 Probar Kobo',      'probarKobo')
+    .addToUi();
 }
 
-// Se ejecuta automáticamente al seleccionar cualquier celda
+// Abre el sidebar con la ficha al seleccionar una fila
 function onSelectionChange(e) {
   try {
     const hoja = e.range.getSheet();
-    if (hoja.getName() !== CONFIG.HOJAS.MAESTRO) return;
-
+    if (hoja.getName() !== CONFIG.HOJA) return;
     const fila = e.range.getRow();
-    if (fila < 2) return; // Ignorar encabezados
+    if (fila < 2) return;
+    const datos = hoja.getRange(fila, 1, 1, 26).getValues()[0];
+    if (!datos[0]) return;
+    abrirFichaParticipante(datos);
+  } catch(_) {}
+}
 
-    const datos = hoja.getRange(fila, 1, 1, 22).getValues()[0];
-    if (!datos[0]) return; // Fila vacía
+// ============================================================================
+// INSTALAR
+// ============================================================================
 
-    mostrarSidebarParticipante(datos);
-  } catch (error) {
-    // Silent — no interrumpir al usuario
+function instalar() {
+  const ss = SpreadsheetApp.getActive();
+
+  // Crear hoja Maestro si no existe
+  let hoja = ss.getSheetByName(CONFIG.HOJA);
+  if (!hoja) {
+    hoja = ss.insertSheet(CONFIG.HOJA);
   }
+
+  // Poner encabezados solo si la hoja está vacía
+  if (hoja.getLastRow() === 0) {
+    const headers = [
+      'ID_Creamos','Fecha_Registro','Nombre_Completo','DPI','Edad','Género',
+      'Teléfono','Zona','Email','Nivel_Educativo','Situación_Laboral','Fortalezas',
+      'Objetivo_Laboral','Perfil_Asignado','Prioridad','Puntaje_Total',
+      'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional',
+      'Dim_Barreras','Dim_Apoyo','Estado','Carpeta_Drive_ID','Doc_Perfil_ID','Doc_Perfil_URL'
+    ];
+    hoja.appendRow(headers);
+    hoja.getRange(1, 1, 1, headers.length)
+      .setBackground('#37474f').setFontColor('#ffffff').setFontWeight('bold');
+  }
+
+  SpreadsheetApp.getUi().alert('✅ Sistema instalado\n\nAhora usa "🔄 Sincronizar Kobo" para traer participantes.');
 }
 
 // ============================================================================
 // CONFIGURACIÓN
 // ============================================================================
 
-const CONFIG = {
-  SPREADSHEET_ID: SpreadsheetApp.getActive().getId(),
-  FOLDER_PARTICIPANTES_ID: "1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU",
-
-  KOBO: {
-    BASE_URL: "https://kf.kobotoolbox.org/api/v2",
-    ASSET_ID: "abHRWdRnPhKwzPQBajc7RZ",
-    API_KEY: ""
-  },
-
-  HOJAS: {
-    MAESTRO: "Maestro",
-    DASHBOARD: "Dashboard",
-    DERIVACION: "Derivación",
-    REPORTES: "Reportes",
-    CONFIGURACION: "Configuración",
-    LOG: "Log"
-  },
-
-  // Mapeo de campos Kobo → Sheet
-  CAMPOS_KOBO: {
-    creamos_id: "Creamos_ID",
-    nombre_completo_del_la_participante: "Nombre_Completo",
-    numero_de_dpi_opcional: "DPI",
-    edad: "Edad",
-    genero: "Género",
-    numero_de_telefono: "Teléfono",
-    lugar_de_residencia: "Zona",
-    correo_electronico_opcional: "Email",
-    cual_es_el_ultimo_grado_que_completaste: "Nivel_Educativo",
-    cual_es_tu_situacion_laboral_actual: "Situación_Laboral",
-    que_sabes_hacer_bien: "Fortalezas",
-    que_tipo_de_empleo_estas_buscando_especificamente: "Objetivo_Laboral",
-    perfil_asignado: "Perfil_Asignado",
-    prioridad_caso: "Prioridad",
-    puntaje_total_60: "Puntaje_Total",
-    dimension_1_capital_educativo: "Dim_Educativo",
-    dimension_2_capital_laboral: "Dim_Laboral",
-    dimension_3_habilidades_digitales: "Dim_Digital",
-    dimension_4_claridad_vocacional: "Dim_Vocacional",
-    dimension_5_barreras_estructurales: "Dim_Barreras",
-    dimension_6_red_apoyo: "Dim_Apoyo"
-  }
-};
-
-// ============================================================================
-// FUNCIONES BASE
-// ============================================================================
-
-function cargarConfiguracion() {
-  const props = PropertiesService.getUserProperties();
-  const apiKey = props.getProperty('KOBO_API_KEY');
-  if (apiKey) CONFIG.KOBO.API_KEY = apiKey;
-  log('✅ Config cargada', 'INFO');
+function cargarApiKey() {
+  const guardada = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY');
+  if (guardada) CONFIG.KOBO_API_KEY = guardada;
 }
 
-function getSpreadsheet() {
-  return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+function abrirConfiguracion() {
+  const html = HtmlService.createHtmlOutput(
+    '<style>body{font-family:Arial;padding:20px}label{display:block;font-weight:bold;margin:12px 0 4px}'
+    + 'input,textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-family:monospace}'
+    + 'textarea{height:80px}button{margin-top:14px;background:#1f73e6;color:#fff;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;width:100%}'
+    + '.ok{background:#c8e6c9;padding:10px;border-radius:4px;color:#2e7d32;margin-bottom:10px}</style>'
+    + '<div class="ok">✅ API Key configurada en el código</div>'
+    + '<label>ID Carpeta Drive</label>'
+    + '<input id="cid" value="' + CONFIG.FOLDER_PARTICIPANTES_ID + '">'
+    + '<label>API Key Kobo</label>'
+    + '<textarea id="key">' + CONFIG.KOBO_API_KEY + '</textarea>'
+    + '<button onclick="var c=document.getElementById(\'cid\').value,k=document.getElementById(\'key\').value;'
+    + 'google.script.run.guardarConfiguracion(c,k);alert(\'✅ Guardado\')">💾 Guardar</button>'
+  );
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function crearHojaSiNoExiste(nombre) {
-  try {
-    const ss = getSpreadsheet();
-    let hoja = ss.getSheetByName(nombre);
-
-    if (!hoja) {
-      hoja = ss.insertSheet(nombre);
-      log(`📄 Hoja creada: ${nombre}`, 'INFO');
-    }
-    return hoja;
-  } catch (error) {
-    log(`Error creando hoja ${nombre}: ${error}`, 'ERROR');
-    return null;
-  }
-}
-
-function getHoja(nombre) {
-  return getSpreadsheet().getSheetByName(nombre);
-}
-
-function log(msg, tipo = "INFO") {
-  const timestamp = new Date().toLocaleString("es-GT");
-  const linea = `[${timestamp}] [${tipo}] ${msg}`;
-  Logger.log(linea);
-
-  try {
-    const hojaLog = crearHojaSiNoExiste(CONFIG.HOJAS.LOG);
-    hojaLog.appendRow([new Date(), tipo, msg]);
-  } catch (error) {
-    // Silent fail para log
-  }
-}
-
-// ============================================================================
-// MENÚ - CONFIGURACIÓN COMPLETA
-// ============================================================================
-
-function mostrarConfiguracionCompleta() {
-  const props = PropertiesService.getUserProperties();
-  const apiKey = props.getProperty('KOBO_API_KEY') || '';
-  const carpetaId = props.getProperty('FOLDER_PARTICIPANTES_ID') || '';
-
-  // Verificar estado del sistema
-  const ss = getSpreadsheet();
-  const hojaMaestro = ss.getSheetByName(CONFIG.HOJAS.MAESTRO);
-  const hojasExistentes = ss.getSheets().map(h => h.getName());
-
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: 'Segoe UI', Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
-      .container { max-width: 1000px; margin: 0 auto; }
-      .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-      .tab-btn { background: white; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: #667eea; transition: all 0.3s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-      .tab-btn.active { background: #667eea; color: white; }
-      .tab-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-      .tab-content { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); display: none; }
-      .tab-content.active { display: block; }
-      h1 { color: #667eea; margin-bottom: 20px; font-size: 28px; border-bottom: 3px solid #667eea; padding-bottom: 15px; }
-      h2 { color: #333; margin-top: 20px; margin-bottom: 15px; font-size: 18px; }
-      .section { background: #f8fafb; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #667eea; }
-      .status { padding: 12px; border-radius: 8px; margin-bottom: 10px; font-weight: bold; }
-      .status.ok { background: #c8e6c9; color: #2e7d32; }
-      .status.warning { background: #fff3cd; color: #856404; }
-      .status.error { background: #f8d7da; color: #721c24; }
-      .input-group { margin-bottom: 15px; }
-      label { display: block; font-weight: bold; color: #333; margin-bottom: 5px; }
-      input, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; font-family: monospace; }
-      textarea { min-height: 80px; }
-      .button-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px; }
-      button { padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s; }
-      .btn-primary { background: #667eea; color: white; }
-      .btn-primary:hover { background: #5568d3; transform: translateY(-2px); }
-      .btn-success { background: #4caf50; color: white; }
-      .btn-success:hover { background: #45a049; }
-      .btn-danger { background: #f44336; color: white; }
-      .btn-danger:hover { background: #da190b; }
-      .btn-warning { background: #ff9800; color: white; }
-      .btn-warning:hover { background: #e68900; }
-      .btn-secondary { background: #757575; color: white; }
-      .btn-secondary:hover { background: #616161; }
-      .info-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px; border-radius: 4px; margin: 10px 0; color: #0d47a1; }
-      .hoja-item { background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 5px 0; display: flex; justify-content: space-between; align-items: center; }
-      .hoja-item.activa { background: #c8e6c9; }
-      .step { background: #f0f4ff; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #667eea; }
-      .step-number { display: inline-block; background: #667eea; color: white; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; font-weight: bold; margin-right: 10px; }
-    </style>
-
-    <div class="container">
-      <div class="tabs">
-        <button class="tab-btn active" onclick="cambiarTab('estado')">📊 Estado del Sistema</button>
-        <button class="tab-btn" onclick="cambiarTab('instalar')">📥 Instalar Sistema</button>
-        <button class="tab-btn" onclick="cambiarTab('configurar')">⚙️ Configurar Kobo</button>
-        <button class="tab-btn" onclick="cambiarTab('respaldar')">💾 Respaldar/Restaurar</button>
-        <button class="tab-btn" onclick="cambiarTab('desinstalar')">🗑️ Desinstalar</button>
-      </div>
-
-      <!-- TAB 1: ESTADO DEL SISTEMA -->
-      <div id="estado" class="tab-content active">
-        <h1>📊 Estado del Sistema</h1>
-
-        <h2>✅ Información General</h2>
-        <div class="section">
-          <p><strong>Versión:</strong> 4.0 Profesional</p>
-          <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID.substring(0, 40)}...</p>
-          <p><strong>Estado:</strong> ${hojaMaestro ? '✅ Operativo' : '⚠️ Necesita instalación'}</p>
-        </div>
-
-        <h2>📄 Hojas del Sistema</h2>
-        ${hojasExistentes.map(hoja => {
-          const esRequerida = Object.values(CONFIG.HOJAS).includes(hoja);
-          const clase = esRequerida ? 'activa' : '';
-          const icono = esRequerida ? '✅' : '';
-          return '<div class="hoja-item ' + clase + '">' + hoja + ' ' + icono + '</div>';
-        }).join('')}
-
-        <h2>🔑 Configuración de Kobo</h2>
-        <div class="section">
-          <p><strong>API Key guardada:</strong> ${apiKey ? '✅ Sí (' + apiKey.substring(0, 10) + '...)' : '❌ No'}</p>
-          <p><strong>Carpeta Drive:</strong> ${carpetaId ? '✅ Sí' : '❌ No'}</p>
-        </div>
-
-        <div class="button-group">
-          <button class="btn-primary" onclick="google.script.run.probarConexionKoboAPI('${apiKey}')">🧪 Probar Conexión</button>
-        </div>
-      </div>
-
-      <!-- TAB 2: INSTALAR SISTEMA -->
-      <div id="instalar" class="tab-content">
-        <h1>📥 Instalación Completa del Sistema</h1>
-
-        <div class="info-box">
-          <strong>📌 Esto creará todas las hojas necesarias con la estructura completa</strong>
-        </div>
-
-        <h2>Pasos de Instalación</h2>
-
-        <div class="step">
-          <span class="step-number">1</span>
-          <strong>Crear todas las hojas automáticamente</strong>
-          <p style="margin-top: 5px; color: #666;">Se crearán: Maestro, Dashboard, Derivación, Reportes, Configuración, Log</p>
-          <button class="btn-success" onclick="google.script.run.instalarSistemaCompleto()">✅ INSTALAR AHORA</button>
-        </div>
-
-        <div class="step">
-          <span class="step-number">2</span>
-          <strong>Configurar API Key de Kobo</strong>
-          <p style="margin-top: 5px; color: #666;">Ve a la pestaña "⚙️ Configurar Kobo"</p>
-        </div>
-
-        <div class="step">
-          <span class="step-number">3</span>
-          <strong>Sincronizar datos de Kobo</strong>
-          <p style="margin-top: 5px; color: #666;">Usa el menú 📊 PASO A PASO > 🔄 SINCRONIZAR</p>
-        </div>
-
-        <h2>¿Qué se instala?</h2>
-        <div class="section">
-          <ul style="margin-left: 20px; line-height: 2;">
-            <li>✅ Hoja "Maestro" con estructura de 22 columnas</li>
-            <li>✅ Hoja "Dashboard" con gráficos automáticos</li>
-            <li>✅ Hoja "Derivación" para controlar derivaciones</li>
-            <li>✅ Hoja "Reportes" con reportes automáticos</li>
-            <li>✅ Hoja "Configuración" para datos de acceso</li>
-            <li>✅ Hoja "Log" con auditoría de cambios</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- TAB 3: CONFIGURAR KOBO -->
-      <div id="configurar" class="tab-content">
-        <h1>⚙️ Configuración de Kobo</h1>
-
-        <div class="input-group">
-          <label>📁 ID de Carpeta Google Drive:</label>
-          <input type="text" id="carpetaId" value="${carpetaId}" placeholder="1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU">
-          <div class="info-box">📌 Copia desde: drive.google.com/drive/folders/<strong>AQUÍ_VA_EL_ID</strong></div>
-        </div>
-
-        <div class="input-group">
-          <label>🔑 API Key de KoboToolbox:</label>
-          <textarea id="apiKey" placeholder="Pega tu API Key aquí">${apiKey}</textarea>
-          <div class="info-box">
-            🔗 Obtén en: <strong>https://kf.kobotoolbox.org/admin/auth/token/</strong><br>
-            Asset ID: <strong>abHRWdRnPhKwzPQBajc7RZ</strong>
-          </div>
-        </div>
-
-        <div class="button-group">
-          <button class="btn-primary" onclick="guardarConfiguracionCompleta()">💾 GUARDAR CONFIGURACIÓN</button>
-          <button class="btn-warning" onclick="probarConexionDesdeConfig()">🧪 PROBAR CONEXIÓN</button>
-        </div>
-
-        <h2>🔐 Seguridad</h2>
-        <div class="section">
-          <p>La API Key se guarda de forma segura en Google Properties Service.</p>
-          <p>🚨 <strong>NO la compartas ni publiques en Git</strong></p>
-        </div>
-      </div>
-
-      <!-- TAB 4: RESPALDAR/RESTAURAR -->
-      <div id="respaldar" class="tab-content">
-        <h1>💾 Respaldar y Restaurar Datos</h1>
-
-        <h2>📥 Respaldar Datos</h2>
-        <div class="section">
-          <p>Descarga una copia de todos tus datos en Google Drive</p>
-          <button class="btn-primary" onclick="google.script.run.respaldarDatos()">📥 RESPALDAR AHORA</button>
-        </div>
-
-        <h2>📤 Restaurar Datos</h2>
-        <div class="section">
-          <p>⚠️ Restaurar eliminará datos actuales y cargará un respaldo anterior</p>
-          <button class="btn-warning" onclick="if(confirm('¿Seguro? Esto eliminará datos actuales')){google.script.run.restaurarDatos()}">📤 RESTAURAR RESPALDO</button>
-        </div>
-
-        <h2>📊 Exportar a CSV</h2>
-        <div class="section">
-          <p>Exporta todos los datos de la hoja Maestro a CSV</p>
-          <button class="btn-secondary" onclick="google.script.run.exportarCSV()">📊 EXPORTAR CSV</button>
-        </div>
-      </div>
-
-      <!-- TAB 5: DESINSTALAR -->
-      <div id="desinstalar" class="tab-content">
-        <h1>🗑️ Desinstalar Sistema</h1>
-
-        <div class="section" style="background: #ffebee; border-left-color: #f44336;">
-          <p><strong>⚠️ ADVERTENCIA:</strong> Esto eliminará TODAS las hojas del sistema</p>
-          <p>Los datos NO se recuperarán después</p>
-        </div>
-
-        <h2>Opciones de Desinstalación</h2>
-
-        <div class="step">
-          <span class="step-number">1</span>
-          <strong>Desinstalar TODO el sistema</strong>
-          <p style="margin-top: 5px; color: #666;">Elimina todas las hojas (Maestro, Dashboard, etc.)</p>
-          <button class="btn-danger" onclick="if(confirm('¿SEGURO? Esto eliminará TODO. Escribe DESINSTALAR para confirmar')) { var pass = prompt('Escribe DESINSTALAR para confirmar'); if(pass === 'DESINSTALAR') { google.script.run.desinstalarSistemaCompleto(); } else { alert('Cancelado'); } }">🗑️ DESINSTALAR TODO</button>
-        </div>
-
-        <div class="step">
-          <span class="step-number">2</span>
-          <strong>Limpiar solo datos (mantener hojas)</strong>
-          <p style="margin-top: 5px; color: #666;">Elimina todos los participantes pero mantiene la estructura</p>
-          <button class="btn-warning" onclick="if(confirm('¿Seguro? Esto eliminará todos los datos de participantes')) { google.script.run.limpiarDatos(); }">🧹 LIMPIAR DATOS</button>
-        </div>
-
-        <div class="step">
-          <span class="step-number">3</span>
-          <strong>Eliminar hoja específica</strong>
-          <p style="margin-top: 5px; color: #666;">Elige qué hoja eliminar</p>
-          <select id="hojaAEliminar" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #ddd;">
-            <option>-- Selecciona una hoja --</option>
-            ${hojasExistentes.map(h => '<option value="' + h + '">' + h + '</option>').join('')}
-          </select>
-          <button class="btn-danger" onclick="const hoja = document.getElementById('hojaAEliminar').value; if(hoja && hoja !== '-- Selecciona una hoja --' && confirm('¿Eliminar ' + hoja + '?')) { google.script.run.eliminarHoja(hoja); }">❌ ELIMINAR HOJA</button>
-        </div>
-      </div>
-    </div>
-
-    <script>
-      function cambiarTab(tabName) {
-        // Ocultar todos
-        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-
-        // Mostrar seleccionado
-        document.getElementById(tabName).classList.add('active');
-        event.target.classList.add('active');
-      }
-
-      function guardarConfiguracionCompleta() {
-        const carpeta = document.getElementById('carpetaId').value.trim();
-        const apiKey = document.getElementById('apiKey').value.trim();
-
-        if (!carpeta || !apiKey) {
-          alert('❌ Completa todos los campos');
-          return;
-        }
-
-        google.script.run.guardarConfiguracionScript(carpeta, apiKey);
-        alert('✅ Configuración guardada');
-      }
-
-      function probarConexionDesdeConfig() {
-        const apiKey = document.getElementById('apiKey').value.trim();
-        if (!apiKey) {
-          alert('❌ Ingresa la API Key');
-          return;
-        }
-        google.script.run.probarConexionKoboAPI(apiKey);
-      }
-    </script>
-  `);
-
-  SpreadsheetApp.getUi().showModelessDialog(html, '⚙️ CONFIGURACIÓN COMPLETA - Paso a Paso v4.0');
-}
-
-// ============================================================================
-// FUNCIONES DE INSTALACIÓN Y DESINSTALACIÓN
-// ============================================================================
-
-function instalarSistemaCompleto() {
-  try {
-    log("=== INICIANDO INSTALACIÓN COMPLETA ===", "INFO");
-
-    const ss = getSpreadsheet();
-
-    // Crear todas las hojas
-    const hojas = [
-      CONFIG.HOJAS.MAESTRO,
-      CONFIG.HOJAS.DASHBOARD,
-      CONFIG.HOJAS.DERIVACION,
-      CONFIG.HOJAS.REPORTES,
-      CONFIG.HOJAS.CONFIGURACION,
-      CONFIG.HOJAS.LOG
-    ];
-
-    for (const hoja of hojas) {
-      crearHojaSiNoExiste(hoja);
-    }
-
-    // Crear encabezados en Maestro
-    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
-    if (hojaM.getLastRow() === 0) {
-      const encabezados = [
-        'Creamos_ID', 'Fecha_Sincronización', 'Nombre_Completo', 'DPI', 'Edad', 'Género',
-        'Teléfono', 'Zona', 'Email', 'Nivel_Educativo', 'Situación_Laboral', 'Fortalezas',
-        'Objetivo_Laboral', 'Perfil_Asignado', 'Prioridad', 'Puntaje_Total',
-        'Dim_Educativo', 'Dim_Laboral', 'Dim_Digital', 'Dim_Vocacional', 'Dim_Barreras', 'Dim_Apoyo'
-      ];
-      hojaM.appendRow(encabezados);
-      log('✅ Encabezados creados en Maestro', 'INFO');
-    }
-
-    // Crear encabezados en Derivación
-    const hojaD = getHoja(CONFIG.HOJAS.DERIVACION);
-    if (hojaD.getLastRow() === 0) {
-      hojaD.appendRow(['Creamos_ID', 'Nombre', 'Perfil', 'Derivado_A', 'Fecha_Derivación', 'Estado_Derivación', 'Notas']);
-    }
-
-    // Crear encabezados en Log
-    const hojaL = getHoja(CONFIG.HOJAS.LOG);
-    if (hojaL.getLastRow() === 0) {
-      hojaL.appendRow(['Fecha', 'Tipo', 'Mensaje']);
-    }
-
-    log('✅ Sistema instalado completamente', 'INFO');
-    SpreadsheetApp.getUi().alert('✅ INSTALACIÓN COMPLETADA\n\nTodas las hojas se crearon exitosamente\n\nAhora configura tu API Key de Kobo');
-
-  } catch (error) {
-    log(`Error en instalación: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error en instalación: ${error}`);
-  }
-}
-
-function desinstalarSistemaCompleto() {
-  try {
-    log("=== DESINSTALANDO SISTEMA COMPLETO ===", "WARN");
-
-    const ss = getSpreadsheet();
-
-    const hojas = [
-      CONFIG.HOJAS.MAESTRO,
-      CONFIG.HOJAS.DASHBOARD,
-      CONFIG.HOJAS.DERIVACION,
-      CONFIG.HOJAS.REPORTES,
-      CONFIG.HOJAS.CONFIGURACION,
-      CONFIG.HOJAS.LOG
-    ];
-
-    for (const nombreHoja of hojas) {
-      const hoja = ss.getSheetByName(nombreHoja);
-      if (hoja) {
-        ss.deleteSheet(hoja);
-        log(`🗑️ Hoja eliminada: ${nombreHoja}`, 'WARN');
-      }
-    }
-
-    // Limpiar propiedades
-    const props = PropertiesService.getUserProperties();
-    props.deleteProperty('KOBO_API_KEY');
-    props.deleteProperty('FOLDER_PARTICIPANTES_ID');
-
-    log('✅ Sistema desinstalado completamente', 'WARN');
-    SpreadsheetApp.getUi().alert('✅ DESINSTALACIÓN COMPLETADA\n\nTodas las hojas se eliminaron\n\nPuedes instalar de nuevo cuando quieras');
-
-  } catch (error) {
-    log(`Error en desinstalación: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
-  }
-}
-
-function limpiarDatos() {
-  try {
-    log("=== LIMPIANDO DATOS ===", "WARN");
-
-    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
-    if (hojaM && hojaM.getLastRow() > 1) {
-      hojaM.deleteRows(2, hojaM.getLastRow() - 1);
-      log('✅ Datos de Maestro eliminados', 'WARN');
-    }
-
-    const hojaD = getHoja(CONFIG.HOJAS.DERIVACION);
-    if (hojaD && hojaD.getLastRow() > 1) {
-      hojaD.deleteRows(2, hojaD.getLastRow() - 1);
-      log('✅ Datos de Derivación eliminados', 'WARN');
-    }
-
-    SpreadsheetApp.getUi().alert('✅ DATOS LIMPIADOS\n\nLas estructuras se mantienen, solo se borraron los datos');
-
-  } catch (error) {
-    log(`Error limpiando datos: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
-  }
-}
-
-function eliminarHoja(nombreHoja) {
-  try {
-    const ss = getSpreadsheet();
-    const hoja = ss.getSheetByName(nombreHoja);
-
-    if (hoja) {
-      ss.deleteSheet(hoja);
-      log(`🗑️ Hoja eliminada: ${nombreHoja}`, 'WARN');
-      SpreadsheetApp.getUi().alert(`✅ Hoja "${nombreHoja}" eliminada`);
-    } else {
-      SpreadsheetApp.getUi().alert('⚠️ Hoja no encontrada');
-    }
-  } catch (error) {
-    log(`Error eliminando hoja: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
-  }
-}
-
-function respaldarDatos() {
-  try {
-    log("=== RESPALDANDO DATOS ===", "INFO");
-
-    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
-    const datos = hojaM.getDataRange().getValues();
-
-    const carpeta = DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
-    const nombreArchivo = `Respaldo_Paso_a_Paso_${new Date().toISOString().split('T')[0]}.csv`;
-
-    let csv = datos.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-
-    const file = carpeta.createFile(nombreArchivo, csv, MimeType.PLAIN_TEXT);
-
-    log(`✅ Respaldo creado: ${nombreArchivo}`, 'INFO');
-    SpreadsheetApp.getUi().alert(`✅ Respaldo creado\n\nArchivo: ${nombreArchivo}`);
-
-  } catch (error) {
-    log(`Error respaldando: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
-  }
-}
-
-function restaurarDatos() {
-  log('📤 Función restaurar disponible pronto', 'INFO');
-  SpreadsheetApp.getUi().alert('⏳ Función disponible en próxima versión');
-}
-
-function exportarCSV() {
-  try {
-    log("=== EXPORTANDO A CSV ===", "INFO");
-
-    const hojaM = getHoja(CONFIG.HOJAS.MAESTRO);
-    const datos = hojaM.getDataRange().getValues();
-
-    const carpeta = DriveApp.getFolderById(CONFIG.FOLDER_PARTICIPANTES_ID);
-    const nombreArchivo = `Exportar_Paso_a_Paso_${new Date().toISOString().split('T')[0]}.csv`;
-
-    let csv = datos.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-
-    const file = carpeta.createFile(nombreArchivo, csv, MimeType.PLAIN_TEXT);
-
-    log(`✅ Exportación creada: ${nombreArchivo}`, 'INFO');
-    SpreadsheetApp.getUi().alert(`✅ Archivo exportado\n\nArchivo: ${nombreArchivo}`);
-
-  } catch (error) {
-    log(`Error exportando: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
-  }
-}
-
-function guardarConfiguracionScript(carpetaId, apiKey) {
-  const props = PropertiesService.getUserProperties();
-  props.setProperty('FOLDER_PARTICIPANTES_ID', carpetaId);
-  props.setProperty('KOBO_API_KEY', apiKey);
-
+function guardarConfiguracion(carpetaId, apiKey) {
+  PropertiesService.getUserProperties()
+    .setProperty('KOBO_API_KEY', apiKey)
+    .setProperty('FOLDER_ID', carpetaId);
+  CONFIG.KOBO_API_KEY = apiKey;
   CONFIG.FOLDER_PARTICIPANTES_ID = carpetaId;
-  CONFIG.KOBO.API_KEY = apiKey;
-
-  log('✅ Configuración guardada', 'INFO');
-  SpreadsheetApp.getUi().alert('✅ Configuración guardada exitosamente');
 }
 
-function probarConexionKoboAPI(apiKey) {
-  try {
-    const url = `${CONFIG.KOBO.BASE_URL}/assets/${CONFIG.KOBO.ASSET_ID}/`;
-    const options = {
-      headers: { "Authorization": `Token ${apiKey}` },
-      muteHttpExceptions: true,
-      timeout: 30
-    };
+// ============================================================================
+// PROBAR KOBO
+// ============================================================================
 
-    const response = UrlFetchApp.fetch(url, options);
-
-    if (response.getResponseCode() === 200) {
-      const data = JSON.parse(response.getContentText());
-      const submissions = data.deployment__submission_count || 0;
-      SpreadsheetApp.getUi().alert(`✅ CONEXIÓN EXITOSA\n\n📊 ${submissions} respuestas en Kobo`);
-      log(`Conexión exitosa. Submissions: ${submissions}`, 'INFO');
-    } else {
-      SpreadsheetApp.getUi().alert(`❌ Error ${response.getResponseCode()}\n\nVerifica tu API Key`);
-    }
-  } catch (error) {
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+function probarKobo() {
+  cargarApiKey();
+  const resp = UrlFetchApp.fetch(
+    CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/',
+    { headers: { Authorization: 'Token ' + CONFIG.KOBO_API_KEY }, muteHttpExceptions: true }
+  );
+  const code = resp.getResponseCode();
+  if (code === 200) {
+    const n = JSON.parse(resp.getContentText()).deployment__submission_count || 0;
+    SpreadsheetApp.getUi().alert('✅ Conexión exitosa\n\n' + n + ' respuestas en Kobo');
+  } else {
+    SpreadsheetApp.getUi().alert('❌ Error ' + code + '\n\nVerifica la API Key en ⚙️ Configuración');
   }
 }
 
 // ============================================================================
-// SINCRONIZACIÓN COMPLETA DE KOBO
+// SINCRONIZAR KOBO
 // ============================================================================
 
-function sincronizarKoboCompleto() {
-  cargarConfiguracion();
-
-  if (!CONFIG.KOBO.API_KEY) {
-    SpreadsheetApp.getUi().alert('❌ Configura la API Key primero\n\n📊 PASO A PASO > ⚙️ Configuración');
+function sincronizar() {
+  cargarApiKey();
+  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+  if (!hoja) {
+    SpreadsheetApp.getUi().alert('❌ Primero instala el sistema (📥 INSTALAR)');
     return;
   }
 
-  log("=== INICIANDO SINCRONIZACIÓN COMPLETA ===", "INFO");
+  // Descargar datos de Kobo
+  const resp = UrlFetchApp.fetch(
+    CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json',
+    { headers: { Authorization: 'Token ' + CONFIG.KOBO_API_KEY }, muteHttpExceptions: true }
+  );
 
-  try {
-    const ui = SpreadsheetApp.getUi();
-    ui.showModelessDialog(
-      HtmlService.createHtmlOutput('<h2>⏳ Sincronizando datos de Kobo...</h2><p>Por favor espera...</p>'),
-      'Sincronización'
-    );
-
-    const datos = descargarDatosKobo();
-    if (!datos || datos.length === 0) {
-      ui.alert('⚠️ No hay registros nuevos en Kobo');
-      return;
-    }
-
-    const hojaMaestro = crearHojaSiNoExiste(CONFIG.HOJAS.MAESTRO);
-    const datosExistentes = hojaMaestro.getDataRange().getValues();
-    const idsExistentes = new Set(datosExistentes.slice(1).map(row => row[0])); // Columna A: Creamos_ID
-
-    let agregados = 0;
-    let actualizados = 0;
-
-    for (const registro of datos) {
-      const creamos_id = registro.creamos_id || '';
-      if (!creamos_id) continue;
-
-      if (idsExistentes.has(creamos_id)) {
-        actualizarParticipante(hojaMaestro, creamos_id, registro);
-        actualizados++;
-      } else {
-        agregarParticipante(hojaMaestro, registro);
-        agregados++;
-      }
-    }
-
-    actualizarDashboard();
-    actualizarReportes();
-
-    log(`✅ Sincronización completada: ${agregados} nuevos, ${actualizados} actualizados`, 'INFO');
-    ui.alert(`✅ SINCRONIZACIÓN COMPLETADA\n\n✨ ${agregados} participantes nuevos\n🔄 ${actualizados} actualizados`);
-
-  } catch (error) {
-    log(`Error en sincronización: ${error}`, 'ERROR');
-    SpreadsheetApp.getUi().alert(`❌ Error: ${error}`);
+  if (resp.getResponseCode() !== 200) {
+    SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode() + '\n\nVerifica tu API Key');
+    return;
   }
+
+  const registros = JSON.parse(resp.getContentText()).results || [];
+  if (registros.length === 0) {
+    SpreadsheetApp.getUi().alert('⚠️ No hay respuestas en Kobo');
+    return;
+  }
+
+  // IDs ya existentes
+  const existentes = new Set();
+  if (hoja.getLastRow() > 1) {
+    hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
+      .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
+  }
+
+  let agregados = 0;
+  registros.forEach(r => {
+    const id = r['creamos_id'] || r['_id'] || '';
+    if (!id || existentes.has(String(id))) return;
+
+    const fila = mapearFila(r);
+    hoja.appendRow(fila);
+    colorearFila(hoja, hoja.getLastRow(), fila[CONFIG.COL.PERFIL - 1]);
+    agregados++;
+  });
+
+  SpreadsheetApp.getUi().alert('✅ Sincronización completada\n\n' + agregados + ' participantes nuevos de ' + registros.length + ' en Kobo');
 }
 
-function descargarDatosKobo() {
-  try {
-    const url = `${CONFIG.KOBO.BASE_URL}/assets/${CONFIG.KOBO.ASSET_ID}/data/`;
-    const options = {
-      headers: { "Authorization": `Token ${CONFIG.KOBO.API_KEY}` },
-      muteHttpExceptions: true,
-      timeout: 60
-    };
-
-    const response = UrlFetchApp.fetch(url, options);
-
-    if (response.getResponseCode() !== 200) {
-      log(`Error Kobo HTTP ${response.getResponseCode()}`, 'ERROR');
-      return null;
-    }
-
-    const data = JSON.parse(response.getContentText());
-    return data.results || [];
-
-  } catch (error) {
-    log(`Error descargando Kobo: ${error}`, 'ERROR');
-    return null;
-  }
-}
-
-function agregarParticipante(hoja, registro) {
-  try {
-    const row = mapearRegistroKobo(registro);
-    hoja.appendRow(row);
-    log(`✅ Participante agregado: ${registro.creamos_id}`, 'INFO');
-  } catch (error) {
-    log(`Error agregando participante: ${error}`, 'ERROR');
-  }
-}
-
-function actualizarParticipante(hoja, creamos_id, registro) {
-  try {
-    const datos = hoja.getDataRange().getValues();
-    for (let i = 0; i < datos.length; i++) {
-      if (datos[i][0] === creamos_id) {
-        const row = mapearRegistroKobo(registro);
-        for (let j = 0; j < row.length; j++) {
-          hoja.getRange(i + 1, j + 1).setValue(row[j]);
-        }
-        log(`🔄 Participante actualizado: ${creamos_id}`, 'INFO');
-        return;
-      }
-    }
-  } catch (error) {
-    log(`Error actualizando participante: ${error}`, 'ERROR');
-  }
-}
-
-function mapearRegistroKobo(registro) {
-  // Mapeo de campos de Kobo al Sheet
+function mapearFila(r) {
   return [
-    registro.creamos_id || '',                                                    // A: Creamos_ID
-    new Date(),                                                                    // B: Fecha_Sincronización
-    registro['nombre_completo_del_la_participante'] || '',                       // C: Nombre_Completo
-    registro['numero_de_dpi_opcional'] || '',                                    // D: DPI
-    registro['edad'] || '',                                                       // E: Edad
-    registro['genero'] || '',                                                     // F: Género
-    registro['numero_de_telefono'] || '',                                        // G: Teléfono
-    registro['lugar_de_residencia'] || '',                                       // H: Zona
-    registro['correo_electronico_opcional'] || '',                              // I: Email
-    registro['cual_es_el_ultimo_grado_que_completaste'] || '',                 // J: Nivel_Educativo
-    registro['cual_es_tu_situacion_laboral_actual'] || '',                     // K: Situación_Laboral
-    registro['que_sabes_hacer_bien'] || '',                                     // L: Fortalezas
-    registro['que_tipo_de_empleo_estas_buscando_especificamente'] || '',       // M: Objetivo_Laboral
-    registro['perfil_asignado'] || '',                                           // N: Perfil_Asignado
-    registro['prioridad_caso'] || '',                                            // O: Prioridad
-    registro['puntaje_total_60'] || 0,                                           // P: Puntaje_Total
-    registro['dimension_1_capital_educativo'] || 0,                             // Q: Dim_Educativo
-    registro['dimension_2_capital_laboral'] || 0,                               // R: Dim_Laboral
-    registro['dimension_3_habilidades_digitales'] || 0,                         // S: Dim_Digital
-    registro['dimension_4_claridad_vocacional'] || 0,                           // T: Dim_Vocacional
-    registro['dimension_5_barreras_estructurales'] || 0,                        // U: Dim_Barreras
-    registro['dimension_6_red_apoyo'] || 0,                                     // V: Dim_Apoyo
-    'En Orientación',                                                             // W: Estado
-    '',                                                                            // X: Derivado_A
-    '',                                                                            // Y: Fecha_Derivación
-    'Pendiente',                                                                  // Z: Estado_Derivación
-    ''                                                                             // AA: Notas
+    r['creamos_id']                                          || '',  // A ID
+    new Date(),                                                       // B Fecha
+    r['nombre_completo_del_la_participante']                 || '',  // C Nombre
+    r['numero_de_dpi_opcional']                              || '',  // D DPI
+    r['edad']                                                || '',  // E Edad
+    r['genero']                                              || '',  // F Género
+    r['numero_de_telefono']                                  || '',  // G Teléfono
+    r['lugar_de_residencia']                                 || '',  // H Zona
+    r['correo_electronico_opcional']                         || '',  // I Email
+    r['cual_es_el_ultimo_grado_que_completaste']             || '',  // J Educación
+    r['cual_es_tu_situacion_laboral_actual']                 || '',  // K Laboral
+    r['que_sabes_hacer_bien']                                || '',  // L Fortalezas
+    r['que_tipo_de_empleo_estas_buscando_especificamente']   || '',  // M Objetivo
+    r['perfil_asignado']                                     || '',  // N Perfil
+    r['prioridad_caso']                                      || '',  // O Prioridad
+    r['puntaje_total_60']                                    || 0,   // P Puntaje
+    r['dimension_1_capital_educativo']                       || 0,   // Q Dim1
+    r['dimension_2_capital_laboral']                         || 0,   // R Dim2
+    r['dimension_3_habilidades_digitales']                   || 0,   // S Dim3
+    r['dimension_4_claridad_vocacional']                     || 0,   // T Dim4
+    r['dimension_5_barreras_estructurales']                  || 0,   // U Dim5
+    r['dimension_6_red_apoyo']                               || 0,   // V Dim6
+    'Orientación',                                                    // W Estado
+    '',                                                               // X Carpeta ID
+    '',                                                               // Y Doc ID
+    ''                                                                // Z Doc URL
   ];
 }
 
-function sincronizarBackground() {
-  SpreadsheetApp.getUi().alert('⏳ Sincronización iniciada en background...\n\nRevisaremos en 2 minutos');
-  log('Sincronización en background iniciada', 'INFO');
-  // Aquí se puede configurar un trigger automático
-}
-
 // ============================================================================
-// DASHBOARD
+// COLORES
 // ============================================================================
-
-function abrirDashboard() {
-  try {
-    const hojaD = crearHojaSiNoExiste(CONFIG.HOJAS.DASHBOARD);
-    const hojaMaestro = getHoja(CONFIG.HOJAS.MAESTRO);
-
-    if (!hojaMaestro) {
-      SpreadsheetApp.getUi().alert('⚠️ Primero sincroniza datos desde Kobo');
-      return;
-    }
-
-    const datos = hojaMaestro.getDataRange().getValues();
-    const stats = {
-      total: datos.length - 1,
-      perfilA: 0,
-      perfilB: 0,
-      perfilC: 0,
-      perfilD: 0,
-      critico: 0,
-      alto: 0,
-      medio: 0,
-      bajo: 0
-    };
-
-    for (let i = 1; i < datos.length; i++) {
-      const perfil = datos[i][13]; // Columna N: Perfil_Asignado
-      const prioridad = datos[i][14]; // Columna O: Prioridad
-
-      if (perfil === 'Perfil A') stats.perfilA++;
-      else if (perfil === 'Perfil B') stats.perfilB++;
-      else if (perfil === 'Perfil C') stats.perfilC++;
-      else if (perfil === 'Perfil D') stats.perfilD++;
-
-      if (prioridad === 'CRÍTICO') stats.critico++;
-      else if (prioridad === 'ALTO') stats.alto++;
-      else if (prioridad === 'MEDIO') stats.medio++;
-      else if (prioridad === 'BAJO') stats.bajo++;
-    }
-
-    const html = HtmlService.createHtmlOutput(`
-      <style>
-        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-        .dashboard { max-width: 900px; background: white; padding: 25px; border-radius: 10px; }
-        h1 { color: #1f73e6; text-align: center; border-bottom: 3px solid #1f73e6; padding-bottom: 15px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-        .card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        .card.a { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-        .card.b { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-        .card.c { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-        .card.d { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-        .card-title { font-size: 14px; opacity: 0.9; }
-        .card-number { font-size: 48px; font-weight: bold; margin: 10px 0; }
-        .card-label { font-size: 12px; opacity: 0.8; }
-        .section { margin-top: 30px; }
-        .section h2 { color: #333; border-bottom: 2px solid #1f73e6; padding-bottom: 10px; }
-        .priority { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 15px; }
-        .priority-card { background: #f5f5f5; padding: 15px; border-radius: 8px; text-align: center; border-left: 4px solid #1f73e6; }
-        .priority-card.critico { border-left-color: #d32f2f; }
-        .priority-card.alto { border-left-color: #f57c00; }
-        .priority-card.medio { border-left-color: #fbc02d; }
-        .priority-card.bajo { border-left-color: #388e3c; }
-        .number { font-size: 32px; font-weight: bold; color: #1f73e6; }
-        .label { font-size: 12px; color: #666; margin-top: 5px; }
-      </style>
-
-      <div class="dashboard">
-        <h1>📊 DASHBOARD - Paso a Paso v4.0</h1>
-
-        <div class="section">
-          <h2>👥 Distribución por Perfil</h2>
-          <div class="grid">
-            <div class="card a">
-              <div class="card-title">Perfil A</div>
-              <div class="card-number">${stats.perfilA}</div>
-              <div class="card-label">Listo para Empleabilidad</div>
-            </div>
-            <div class="card b">
-              <div class="card-title">Perfil B</div>
-              <div class="card-number">${stats.perfilB}</div>
-              <div class="card-label">Necesita Orientación</div>
-            </div>
-            <div class="card c">
-              <div class="card-title">Perfil C</div>
-              <div class="card-number">${stats.perfilC}</div>
-              <div class="card-label">Desarrollo Capital Humano</div>
-            </div>
-            <div class="card d">
-              <div class="card-title">Perfil D</div>
-              <div class="card-number">${stats.perfilD}</div>
-              <div class="card-label">Barreras Críticas</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h2>⚠️ Distribución por Prioridad</h2>
-          <div class="priority">
-            <div class="priority-card critico">
-              <div class="number" style="color: #d32f2f;">${stats.critico}</div>
-              <div class="label">CRÍTICO</div>
-            </div>
-            <div class="priority-card alto">
-              <div class="number" style="color: #f57c00;">${stats.alto}</div>
-              <div class="label">ALTO</div>
-            </div>
-            <div class="priority-card medio">
-              <div class="number" style="color: #fbc02d;">${stats.medio}</div>
-              <div class="label">MEDIO</div>
-            </div>
-            <div class="priority-card bajo">
-              <div class="number" style="color: #388e3c;">${stats.bajo}</div>
-              <div class="label">BAJO</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h2>📈 Resumen Total</h2>
-          <p style="font-size: 18px; color: #1f73e6;">
-            <strong>Total de Participantes: ${stats.total}</strong>
-          </p>
-        </div>
-      </div>
-    `);
-
-    SpreadsheetApp.getUi().showModelessDialog(html, '📊 Dashboard');
-  } catch (error) {
-    SpreadsheetApp.getUi().alert(`Error: ${error}`);
-  }
-}
-
-function actualizarDashboard() {
-  // Se ejecuta después de sincronizar
-  log('Dashboard actualizado', 'INFO');
-}
-
-// ============================================================================
-// REPORTES
-// ============================================================================
-
-function abrirReportes() {
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-      .container { max-width: 800px; background: white; padding: 25px; border-radius: 10px; }
-      h1 { color: #1f73e6; }
-      .reporte { background: #f9f9f9; padding: 15px; margin: 15px 0; border-left: 4px solid #1f73e6; border-radius: 5px; cursor: pointer; }
-      .reporte:hover { background: #e3f2fd; }
-      .reporte-title { font-weight: bold; color: #1f73e6; }
-      .reporte-desc { font-size: 12px; color: #666; margin-top: 5px; }
-    </style>
-
-    <div class="container">
-      <h1>📋 REPORTES</h1>
-
-      <div class="reporte" onclick="google.script.run.generarReporteDiario()">
-        <div class="reporte-title">📅 Reporte Diario</div>
-        <div class="reporte-desc">Nuevos participantes, cambios de estado, derivaciones del día</div>
-      </div>
-
-      <div class="reporte" onclick="google.script.run.generarReportePerfiles()">
-        <div class="reporte-title">📊 Reporte de Perfiles</div>
-        <div class="reporte-desc">Distribución por Perfil A, B, C, D con detalles</div>
-      </div>
-
-      <div class="reporte" onclick="google.script.run.generarReporteDerivaciones()">
-        <div class="reporte-title">📁 Reporte de Derivaciones</div>
-        <div class="reporte-desc">Todas las derivaciones pendientes y completadas</div>
-      </div>
-
-      <div class="reporte" onclick="google.script.run.generarReportePrioridad()">
-        <div class="reporte-title">⚠️ Reporte de Prioridad</div>
-        <div class="reporte-desc">Casos CRÍTICOS y ALTOS por atender URGENTE</div>
-      </div>
-
-      <div class="reporte" onclick="window.close()">
-        <div class="reporte-title" style="color: #999;">❌ Cerrar</div>
-      </div>
-    </div>
-
-    <script>
-      google.script.run.generarReportePerfiles();
-    </script>
-  `);
-
-  SpreadsheetApp.getUi().showModelessDialog(html, '📋 Reportes');
-}
-
-function generarReporteDiario() {
-  log('Reporte diario generado', 'INFO');
-  SpreadsheetApp.getUi().alert('📅 Reporte generado y enviado por email');
-}
-
-function generarReportePerfiles() {
-  log('Reporte de perfiles generado', 'INFO');
-}
-
-function generarReporteDerivaciones() {
-  log('Reporte de derivaciones generado', 'INFO');
-}
-
-function generarReportePrioridad() {
-  log('Reporte de prioridad generado', 'INFO');
-}
-
-function actualizarReportes() {
-  log('Reportes actualizados', 'INFO');
-}
-
-// ============================================================================
-// DERIVACIONES
-// ============================================================================
-
-function abrirDerivaciones() {
-  const hojaMaestro = getHoja(CONFIG.HOJAS.MAESTRO);
-
-  if (!hojaMaestro) {
-    SpreadsheetApp.getUi().alert('⚠️ No hay datos. Sincroniza primero.');
-    return;
-  }
-
-  const datos = hojaMaestro.getDataRange().getValues();
-  let derivacionesPendientes = [];
-
-  for (let i = 1; i < datos.length; i++) {
-    const estado = datos[i][23]; // Columna X: Estado_Derivación
-    if (estado === 'Pendiente') {
-      derivacionesPendientes.push({
-        id: datos[i][0],
-        nombre: datos[i][2],
-        perfil: datos[i][13],
-        derivadoA: datos[i][21],
-        prioridad: datos[i][14]
-      });
-    }
-  }
-
-  let html = `
-    <style>
-      body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-      .container { max-width: 900px; background: white; padding: 25px; border-radius: 10px; }
-      h1 { color: #1f73e6; }
-      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-      th { background: #1f73e6; color: white; padding: 12px; text-align: left; }
-      td { padding: 12px; border-bottom: 1px solid #ddd; }
-      tr:hover { background: #f5f5f5; }
-    </style>
-
-    <div class="container">
-      <h1>📁 Derivaciones Pendientes (${derivacionesPendientes.length})</h1>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Nombre</th>
-            <th>Perfil</th>
-            <th>Derivado A</th>
-            <th>Prioridad</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
-
-  for (const deriv of derivacionesPendientes) {
-    html += `
-      <tr>
-        <td><strong>${deriv.id}</strong></td>
-        <td>${deriv.nombre}</td>
-        <td>${deriv.perfil}</td>
-        <td>${deriv.derivadoA || '-'}</td>
-        <td><strong style="color: ${deriv.prioridad === 'CRÍTICO' ? 'red' : 'orange'}">${deriv.prioridad}</strong></td>
-      </tr>
-    `;
-  }
-
-  html += `
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  SpreadsheetApp.getUi().showModelessDialog(
-    HtmlService.createHtmlOutput(html),
-    '📁 Derivaciones Pendientes'
-  );
-}
-
-// ============================================================================
-// AYUDA
-// ============================================================================
-
-function mostrarAyuda() {
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-      .container { max-width: 700px; background: white; padding: 25px; border-radius: 10px; }
-      h1 { color: #1f73e6; }
-      h2 { color: #333; margin-top: 20px; border-bottom: 2px solid #1f73e6; padding-bottom: 10px; }
-      .step { background: #e3f2fd; padding: 15px; border-left: 4px solid #1f73e6; border-radius: 5px; margin: 10px 0; }
-      ul { margin: 10px 0; }
-      li { margin: 8px 0; }
-    </style>
-
-    <div class="container">
-      <h1>📖 Ayuda - Paso a Paso v4.0</h1>
-
-      <h2>🚀 Primeros Pasos</h2>
-      <div class="step">
-        <strong>1. Configuración</strong><br>
-        Abre ⚙️ Configuración e ingresa tu API Key de Kobo
-      </div>
-      <div class="step">
-        <strong>2. Sincronizar</strong><br>
-        Click en 🔄 SINCRONIZAR Kobo para descargar datos
-      </div>
-      <div class="step">
-        <strong>3. Ver Dashboard</strong><br>
-        📊 Dashboard muestra gráficos y estadísticas
-      </div>
-
-      <h2>📊 Hojas Automáticas</h2>
-      <ul>
-        <li><strong>Maestro:</strong> Todos los participantes con datos de Kobo</li>
-        <li><strong>Dashboard:</strong> Gráficos y estadísticas</li>
-        <li><strong>Derivación:</strong> Seguimiento de derivaciones</li>
-        <li><strong>Reportes:</strong> Reportes automáticos</li>
-        <li><strong>Log:</strong> Historial de todas las acciones</li>
-      </ul>
-
-      <h2>🔄 Sincronización</h2>
-      <p>Cuando sincronizas, el sistema:</p>
-      <ul>
-        <li>✅ Descarga nuevos participantes de Kobo</li>
-        <li>✅ Actualiza datos existentes</li>
-        <li>✅ Clasifica por Perfil y Prioridad</li>
-        <li>✅ Actualiza Dashboard y Reportes</li>
-      </ul>
-    </div>
-  `);
-
-  SpreadsheetApp.getUi().showModelessDialog(html, '📖 Ayuda');
-}
-
-// ============================================================================
-// PASO 1 — COLORES + SIDEBAR PARTICIPANTE
-// ============================================================================
-
-const COLORES_PERFIL = {
-  'Perfil A': { fondo: '#d9ead3', texto: '#274e13', badge: '🟢 A' },
-  'Perfil B': { fondo: '#cfe2f3', texto: '#1c4587', badge: '🔵 B' },
-  'Perfil C': { fondo: '#fff2cc', texto: '#7f6000', badge: '🟡 C' },
-  'Perfil D': { fondo: '#f4cccc', texto: '#660000', badge: '🔴 D' }
-};
 
 function colorearTabla() {
-  try {
-    const hoja = getHoja(CONFIG.HOJAS.MAESTRO);
-    if (!hoja) {
-      SpreadsheetApp.getUi().alert('⚠️ Primero sincroniza datos de Kobo');
-      return;
-    }
+  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+  if (!hoja || hoja.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('⚠️ No hay datos para colorear');
+    return;
+  }
+  const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues();
+  datos.forEach((fila, i) => {
+    colorearFila(hoja, i + 2, fila[CONFIG.COL.PERFIL - 1]);
+  });
+  SpreadsheetApp.getUi().alert('✅ Tabla coloreada\n🟢 A  🔵 B  🟡 C  🔴 D');
+}
 
-    const ultFila = hoja.getLastRow();
-    if (ultFila < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ No hay datos para colorear');
-      return;
-    }
-
-    const datos = hoja.getRange(2, 1, ultFila - 1, 22).getValues();
-
-    for (let i = 0; i < datos.length; i++) {
-      const perfil = datos[i][13]; // Columna N = Perfil_Asignado
-      const colores = COLORES_PERFIL[perfil];
-      const rango = hoja.getRange(i + 2, 1, 1, 22);
-
-      if (colores) {
-        rango.setBackground(colores.fondo).setFontColor(colores.texto);
-      } else {
-        rango.setBackground('#f3f3f3').setFontColor('#333333');
-      }
-    }
-
-    // Encabezados siempre oscuros
-    hoja.getRange(1, 1, 1, 22)
-      .setBackground('#37474f')
-      .setFontColor('#ffffff')
-      .setFontWeight('bold');
-
-    log('Tabla coloreada: ' + (ultFila - 1) + ' filas', 'INFO');
-    SpreadsheetApp.getUi().alert('✅ Tabla coloreada\n\n🟢 Verde = Perfil A\n🔵 Azul = Perfil B\n🟡 Amarillo = Perfil C\n🔴 Rojo = Perfil D');
-
-  } catch (error) {
-    log('Error coloreando tabla: ' + error, 'ERROR');
-    SpreadsheetApp.getUi().alert('❌ Error: ' + error);
+function colorearFila(hoja, numFila, perfil) {
+  const c = CONFIG.COLORES[perfil];
+  const rango = hoja.getRange(numFila, 1, 1, 26);
+  if (c) {
+    rango.setBackground(c.fondo).setFontColor(c.texto);
+  } else {
+    rango.setBackground('#ffffff').setFontColor('#333333');
   }
 }
 
-function mostrarSidebarParticipante(datos) {
-  const nombre    = datos[2]  || 'Sin nombre';
-  const dpi       = datos[3]  || '—';
-  const edad      = datos[4]  || '—';
-  const genero    = datos[5]  || '—';
-  const telefono  = datos[6]  || '—';
-  const zona      = datos[7]  || '—';
-  const perfil    = datos[13] || '—';
-  const prioridad = datos[14] || '—';
-  const puntaje   = datos[15] || 0;
-  const dim1      = Number(datos[16]) || 0;
-  const dim2      = Number(datos[17]) || 0;
-  const dim3      = Number(datos[18]) || 0;
-  const dim4      = Number(datos[19]) || 0;
-  const dim5      = Number(datos[20]) || 0;
-  const dim6      = Number(datos[21]) || 0;
+// ============================================================================
+// FICHA PARTICIPANTE — SIDEBAR (NO ventana flotante)
+// ============================================================================
 
-  const colores = COLORES_PERFIL[perfil] || { fondo: '#f3f3f3', texto: '#333', badge: perfil };
+function abrirFichaParticipante(datos) {
+  const nombre    = datos[CONFIG.COL.NOMBRE    - 1] || '—';
+  const dpi       = datos[CONFIG.COL.DPI       - 1] || '—';
+  const edad      = datos[CONFIG.COL.EDAD      - 1] || '—';
+  const genero    = datos[CONFIG.COL.GENERO    - 1] || '—';
+  const telefono  = datos[CONFIG.COL.TELEFONO  - 1] || '—';
+  const zona      = datos[CONFIG.COL.ZONA      - 1] || '—';
+  const perfil    = datos[CONFIG.COL.PERFIL    - 1] || '—';
+  const prioridad = datos[CONFIG.COL.PRIORIDAD - 1] || '—';
+  const puntaje   = datos[CONFIG.COL.PUNTAJE   - 1] || 0;
+  const estado    = datos[CONFIG.COL.ESTADO    - 1] || 'Orientación';
+  const objetivo  = datos[CONFIG.COL.OBJETIVO  - 1] || '—';
+  const fortalezas = datos[CONFIG.COL.FORTALEZAS - 1] || '—';
+  const d1 = Number(datos[CONFIG.COL.DIM1 - 1]) || 0;
+  const d2 = Number(datos[CONFIG.COL.DIM2 - 1]) || 0;
+  const d3 = Number(datos[CONFIG.COL.DIM3 - 1]) || 0;
+  const d4 = Number(datos[CONFIG.COL.DIM4 - 1]) || 0;
+  const d5 = Number(datos[CONFIG.COL.DIM5 - 1]) || 0;
+  const d6 = Number(datos[CONFIG.COL.DIM6 - 1]) || 0;
 
-  const colorPrioridad = prioridad === 'CRÍTICO' ? '#d32f2f'
-    : prioridad === 'ALTO'    ? '#e65100'
-    : prioridad === 'MEDIO'   ? '#f9a825'
-    : '#388e3c';
+  const c = CONFIG.COLORES[perfil] || { fondo: '#f5f5f5', texto: '#333' };
+  const cPrioridad = prioridad === 'CRÍTICO' ? '#c62828'
+    : prioridad === 'ALTO'  ? '#e65100'
+    : prioridad === 'MEDIO' ? '#f9a825' : '#388e3c';
 
-  // Radar chart SVG (hexágono simple)
-  const radar = generarRadarSVG([dim1, dim2, dim3, dim4, dim5, dim6]);
+  const iniciales = nombre.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase();
+  const radar = svgRadar([d1, d2, d3, d4, d5, d6], c.texto);
+  const barras = svgBarras([d1, d2, d3, d4, d5, d6], c.texto);
 
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: Arial, sans-serif; background: #f8f9fa; }
+  const html = HtmlService.createHtmlOutput(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:Arial,sans-serif;font-size:13px;background:#f8f9fa;color:#333}
 
-      .header {
-        background: ` + colores.fondo + `;
-        border-left: 5px solid ` + colores.texto + `;
-        padding: 16px;
-      }
-      .nombre { font-size: 16px; font-weight: bold; color: ` + colores.texto + `; }
-      .badge {
-        display: inline-block; margin-top: 6px;
-        background: ` + colores.texto + `; color: white;
-        padding: 3px 10px; border-radius: 20px; font-size: 12px;
-      }
-      .prioridad {
-        display: inline-block; margin-left: 6px;
-        background: ` + colorPrioridad + `; color: white;
-        padding: 3px 10px; border-radius: 20px; font-size: 12px;
-      }
+  .avatar{width:64px;height:64px;border-radius:50%;background:` + c.texto + `;
+    color:#fff;font-size:22px;font-weight:bold;display:flex;align-items:center;
+    justify-content:center;flex-shrink:0}
 
-      .seccion { padding: 12px 16px; border-bottom: 1px solid #e0e0e0; }
-      .seccion-titulo {
-        font-size: 11px; font-weight: bold; color: #888;
-        text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
-      }
-      .dato { display: flex; justify-content: space-between; margin: 5px 0; font-size: 13px; }
-      .dato-label { color: #666; }
-      .dato-valor { font-weight: bold; color: #333; }
+  .header{background:` + c.fondo + `;padding:14px;display:flex;gap:12px;align-items:center;
+    border-bottom:3px solid ` + c.texto + `}
+  .header-info{flex:1;min-width:0}
+  .nombre{font-size:15px;font-weight:bold;color:` + c.texto + `;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badges{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .badge{padding:2px 8px;border-radius:12px;font-size:11px;font-weight:bold;
+    border:1.5px solid ` + c.texto + `;color:` + c.texto + `}
+  .badge-prio{background:` + cPrioridad + `;color:#fff;border-color:` + cPrioridad + `}
+  .badge-estado{background:#fff;border-color:#999;color:#555}
 
-      .radar-wrap { display: flex; justify-content: center; padding: 12px 0; }
+  .puntaje{text-align:center;padding:10px;background:#fff;border-bottom:1px solid #eee}
+  .puntaje-num{font-size:32px;font-weight:bold;color:` + c.texto + `}
+  .puntaje-sub{font-size:11px;color:#999}
 
-      .dim-barra { margin: 5px 0; }
-      .dim-nombre { font-size: 11px; color: #555; margin-bottom: 2px; }
-      .barra-fondo { background: #e0e0e0; border-radius: 4px; height: 8px; }
-      .barra-fill { height: 8px; border-radius: 4px; background: ` + colores.texto + `; transition: width 0.5s; }
+  .sec{padding:10px 14px;border-bottom:1px solid #eee;background:#fff}
+  .sec+.sec{margin-top:6px}
+  .sec-titulo{font-size:10px;font-weight:bold;color:#999;text-transform:uppercase;
+    letter-spacing:.8px;margin-bottom:8px}
+  .fila{display:flex;justify-content:space-between;padding:3px 0}
+  .fila-k{color:#777}
+  .fila-v{font-weight:bold;text-align:right;max-width:55%;word-break:break-word}
 
-      .puntaje-total {
-        text-align: center; padding: 12px;
-        font-size: 28px; font-weight: bold; color: ` + colores.texto + `;
-      }
-      .puntaje-label { font-size: 11px; color: #999; }
-    </style>
+  .radar-wrap{display:flex;justify-content:center;padding:8px 0}
+  .gap{margin-top:6px}
+</style></head><body>
 
-    <div class="header">
-      <div class="nombre">👤 ` + nombre + `</div>
-      <span class="badge">` + colores.badge + `</span>
-      <span class="prioridad">` + prioridad + `</span>
+<div class="header">
+  <div class="avatar">` + iniciales + `</div>
+  <div class="header-info">
+    <div class="nombre">` + nombre + `</div>
+    <div class="badges">
+      <span class="badge">` + perfil + `</span>
+      <span class="badge badge-prio">` + prioridad + `</span>
+      <span class="badge badge-estado">` + estado + `</span>
     </div>
+  </div>
+</div>
 
-    <div class="puntaje-total">
-      ` + puntaje + `<span style="font-size:14px">/60</span>
-      <div class="puntaje-label">Puntaje total</div>
-    </div>
+<div class="puntaje">
+  <div class="puntaje-num">` + puntaje + `<span style="font-size:14px;color:#aaa">/60</span></div>
+  <div class="puntaje-sub">Puntaje diagnóstico</div>
+</div>
 
-    <div class="seccion">
-      <div class="seccion-titulo">Datos personales</div>
-      <div class="dato"><span class="dato-label">DPI</span><span class="dato-valor">` + dpi + `</span></div>
-      <div class="dato"><span class="dato-label">Edad</span><span class="dato-valor">` + edad + `</span></div>
-      <div class="dato"><span class="dato-label">Género</span><span class="dato-valor">` + genero + `</span></div>
-      <div class="dato"><span class="dato-label">Teléfono</span><span class="dato-valor">` + telefono + `</span></div>
-      <div class="dato"><span class="dato-label">Zona</span><span class="dato-valor">` + zona + `</span></div>
-    </div>
+<div class="gap"></div>
 
-    <div class="seccion">
-      <div class="seccion-titulo">Dimensiones</div>
-      <div class="radar-wrap">` + radar + `</div>
-      ` + generarBarrasDimensiones([dim1,dim2,dim3,dim4,dim5,dim6], colores.texto) + `
-    </div>
-  `);
+<div class="sec">
+  <div class="sec-titulo">Datos personales</div>
+  <div class="fila"><span class="fila-k">DPI</span><span class="fila-v">` + dpi + `</span></div>
+  <div class="fila"><span class="fila-k">Edad</span><span class="fila-v">` + edad + `</span></div>
+  <div class="fila"><span class="fila-k">Género</span><span class="fila-v">` + genero + `</span></div>
+  <div class="fila"><span class="fila-k">Teléfono</span><span class="fila-v">` + telefono + `</span></div>
+  <div class="fila"><span class="fila-k">Zona</span><span class="fila-v">` + zona + `</span></div>
+</div>
+
+<div class="sec">
+  <div class="sec-titulo">Objetivo laboral</div>
+  <div style="color:#444;line-height:1.5">` + objetivo + `</div>
+</div>
+
+<div class="sec">
+  <div class="sec-titulo">Fortalezas</div>
+  <div style="color:#444;line-height:1.5">` + fortalezas + `</div>
+</div>
+
+<div class="sec">
+  <div class="sec-titulo">Perfil por dimensiones</div>
+  <div class="radar-wrap">` + radar + `</div>
+  ` + barras + `
+</div>
+
+</body></html>`);
 
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function generarBarrasDimensiones(dims, color) {
-  const nombres = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
-  return dims.map(function(val, i) {
-    const pct = Math.round((val / 10) * 100);
-    return '<div class="dim-barra">'
-      + '<div class="dim-nombre">' + nombres[i] + ' (' + val + '/10)</div>'
-      + '<div class="barra-fondo"><div class="barra-fill" style="width:' + pct + '%;background:' + color + '"></div></div>'
-      + '</div>';
+// ============================================================================
+// SVG RADAR + BARRAS
+// ============================================================================
+
+function svgRadar(dims, color) {
+  const cx = 85, cy = 85, r = 65;
+  const angulos = [-90, -30, 30, 90, 150, 210];
+  const labels  = ['Educ','Labor','Digital','Vocal','Barr','Apoyo'];
+
+  let fondos = '';
+  [.33, .66, 1].forEach(function(n) {
+    const pts = angulos.map(function(a) {
+      const rad = a * Math.PI / 180;
+      return (cx + r * n * Math.cos(rad)).toFixed(1) + ',' + (cy + r * n * Math.sin(rad)).toFixed(1);
+    }).join(' ');
+    fondos += '<polygon points="' + pts + '" fill="none" stroke="#e0e0e0" stroke-width="1"/>';
+  });
+
+  let ejes = angulos.map(function(a) {
+    const rad = a * Math.PI / 180;
+    return '<line x1="' + cx + '" y1="' + cy + '" x2="' + (cx + r * Math.cos(rad)).toFixed(1)
+      + '" y2="' + (cy + r * Math.sin(rad)).toFixed(1) + '" stroke="#e0e0e0" stroke-width="1"/>';
   }).join('');
+
+  const dataPts = angulos.map(function(a, i) {
+    const rad = a * Math.PI / 180;
+    const esc = (dims[i] / 10);
+    return (cx + r * esc * Math.cos(rad)).toFixed(1) + ',' + (cy + r * esc * Math.sin(rad)).toFixed(1);
+  }).join(' ');
+
+  let lbls = angulos.map(function(a, i) {
+    const rad = a * Math.PI / 180;
+    const x = (cx + (r + 14) * Math.cos(rad)).toFixed(1);
+    const y = (cy + (r + 14) * Math.sin(rad)).toFixed(1);
+    return '<text x="' + x + '" y="' + y + '" text-anchor="middle" font-size="9" fill="#777">' + labels[i] + '</text>';
+  }).join('');
+
+  return '<svg width="170" height="170" viewBox="0 0 170 170">'
+    + fondos + ejes
+    + '<polygon points="' + dataPts + '" fill="' + color + '33" stroke="' + color + '" stroke-width="2" stroke-linejoin="round"/>'
+    + lbls + '</svg>';
 }
 
-function generarRadarSVG(dims) {
-  const cx = 90, cy = 90, r = 70;
-  const angulos = [270, 330, 30, 90, 150, 210]; // 6 ejes
-  const etiquetas = ['Educ','Labor','Digital','Vocal','Barr','Apoyo'];
-
-  // Puntos del polígono de datos
-  const puntos = angulos.map(function(ang, i) {
-    const rad = (ang * Math.PI) / 180;
-    const escala = (dims[i] / 10);
-    return [
-      Math.round(cx + r * escala * Math.cos(rad)),
-      Math.round(cy + r * escala * Math.sin(rad))
-    ];
-  });
-
-  const polyPuntos = puntos.map(function(p) { return p[0] + ',' + p[1]; }).join(' ');
-
-  // Líneas del fondo (3 niveles)
-  let fondoLineas = '';
-  [0.33, 0.66, 1].forEach(function(nivel) {
-    const pts = angulos.map(function(ang) {
-      const rad = (ang * Math.PI) / 180;
-      return Math.round(cx + r * nivel * Math.cos(rad)) + ',' + Math.round(cy + r * nivel * Math.sin(rad));
-    }).join(' ');
-    fondoLineas += '<polygon points="' + pts + '" fill="none" stroke="#ddd" stroke-width="1"/>';
-  });
-
-  // Ejes
-  let ejes = angulos.map(function(ang) {
-    const rad = (ang * Math.PI) / 180;
-    const x2 = Math.round(cx + r * Math.cos(rad));
-    const y2 = Math.round(cy + r * Math.sin(rad));
-    return '<line x1="' + cx + '" y1="' + cy + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#ddd" stroke-width="1"/>';
+function svgBarras(dims, color) {
+  const labels = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+  return dims.map(function(v, i) {
+    const pct = Math.round((v / 10) * 100);
+    return '<div style="margin:5px 0">'
+      + '<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px">'
+      + '<span>' + labels[i] + '</span><span>' + v + '/10</span></div>'
+      + '<div style="background:#eee;border-radius:4px;height:7px">'
+      + '<div style="width:' + pct + '%;background:' + color + ';height:7px;border-radius:4px"></div>'
+      + '</div></div>';
   }).join('');
-
-  // Etiquetas
-  let labels = angulos.map(function(ang, i) {
-    const rad = (ang * Math.PI) / 180;
-    const x = Math.round(cx + (r + 14) * Math.cos(rad));
-    const y = Math.round(cy + (r + 14) * Math.sin(rad));
-    return '<text x="' + x + '" y="' + y + '" text-anchor="middle" font-size="9" fill="#666">' + etiquetas[i] + '</text>';
-  }).join('');
-
-  return '<svg width="180" height="180" viewBox="0 0 180 180">'
-    + fondoLineas + ejes
-    + '<polygon points="' + polyPuntos + '" fill="rgba(102,126,234,0.3)" stroke="#667eea" stroke-width="2"/>'
-    + labels
-    + '</svg>';
 }
 
 // ============================================================================
-// FIN DEL SISTEMA
+// FIN
 // ============================================================================
