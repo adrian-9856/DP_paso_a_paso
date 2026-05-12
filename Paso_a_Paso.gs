@@ -119,12 +119,9 @@ function instalar() {
 }
 
 function configurarTriggers() {
-  // Limpiar triggers anteriores
+  const TRIGGERS = ['sincronizarAutomatico', 'enviarReporteSemanal', 'verificarCasosDormidos', 'manejarEdicion'];
   ScriptApp.getProjectTriggers().forEach(t => {
-    const fn = t.getHandlerFunction();
-    if (fn === 'sincronizarAutomatico' || fn === 'enviarReporteSemanal' || fn === 'verificarCasosDormidos') {
-      ScriptApp.deleteTrigger(t);
-    }
+    if (TRIGGERS.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
 
   // Sincronización diaria 8 AM
@@ -135,6 +132,9 @@ function configurarTriggers() {
 
   // Verificar casos dormidos diariamente 10 AM
   ScriptApp.newTrigger('verificarCasosDormidos').timeBased().atHour(10).everyDays(1).create();
+
+  // onEdit INSTALABLE — necesario para poder abrir Google Docs con permisos
+  ScriptApp.newTrigger('manejarEdicion').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
 }
 
 function sincronizarAutomatico() {
@@ -421,10 +421,28 @@ function enviarReporteSemanal() {
 }
 
 // ============================================================================
-// HISTORIAL DE CAMBIOS (onEdit)
+// HISTORIAL DE CAMBIOS
+// onEdit simple NO puede abrir Docs (sin permisos).
+// manejarEdicion() es un trigger INSTALABLE con permisos completos.
+// Se instala automáticamente al ejecutar 📥 Instalar Sistema.
 // ============================================================================
 
 function onEdit(e) {
+  // Solo registra en Log — no abre Docs (sin permisos en trigger simple)
+  try {
+    const sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== CONFIG.HOJA) return;
+    const fila = e.range.getRow();
+    const columna = e.range.getColumn();
+    if (fila < 2) return;
+    const logSheet = e.source.getSheetByName('Log');
+    if (logSheet && (e.value || e.oldValue)) {
+      logSheet.appendRow([new Date(), CONFIG.HOJA, fila, columna, e.oldValue || '', e.value || '', Session.getEffectiveUser().getEmail()]);
+    }
+  } catch(err) {}
+}
+
+function manejarEdicion(e) {
   try {
     const sheet = e.source.getActiveSheet();
     if (sheet.getName() !== CONFIG.HOJA) return;
