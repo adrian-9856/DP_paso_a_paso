@@ -36,13 +36,13 @@ function onOpen() {
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
       .addItem('🔄 Sincronizar Kobo', 'sincronizar')
-      .addItem('🎨 Colorear Tabla', 'colorearTabla')
       .addItem('🖌️ Formatear Hoja Maestro', 'formatearHojaMaestro')
-      .addItem('📋 Ver Ficha', 'verFicha')
+      .addSeparator()
+      .addItem('📋 Ver Ficha Participante', 'abrirFichaInteractiva')
+      .addItem('➡️ Gestionar Derivaciones', 'abrirDerivacionesInteractivas')
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('📈 Analytics', 'abrirAnalytics')
-      .addItem('➡️ Derivaciones', 'verDerivaciones')
       .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addSeparator()
       .addItem('🧪 Probar Kobo', 'probarKobo')
@@ -1246,6 +1246,390 @@ function verDerivaciones() {
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e);
   }
+}
+
+// ============================================================================
+// SIDEBAR INTERACTIVO — FICHA
+// ============================================================================
+
+function abrirFichaInteractiva() {
+  const html = HtmlService.createHtmlOutput(fichaHtml())
+    .setTitle('📋 Ficha Participante')
+    .setWidth(360);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// Funciones de datos llamadas desde el sidebar via google.script.run
+function obtenerParticipantes() {
+  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+  if (!hoja || hoja.getLastRow() < 2) return [];
+  return hoja.getRange(2, 1, hoja.getLastRow()-1, CONFIG.COL.ESTADO).getValues()
+    .filter(r => r[0])
+    .map(r => ({
+      id:       String(r[CONFIG.COL.ID-1]),
+      nombre:   r[CONFIG.COL.NOMBRE-1] || '',
+      perfil:   r[CONFIG.COL.PERFIL-1] || '',
+      prioridad:r[CONFIG.COL.PRIORIDAD-1] || '',
+      estado:   r[CONFIG.COL.ESTADO-1] || ''
+    }))
+    .sort((a,b) => a.nombre.localeCompare(b.nombre));
+}
+
+function obtenerDatosParticipante(id) {
+  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+  if (!hoja || hoja.getLastRow() < 2) return null;
+  const rows = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues();
+  const r = rows.find(row => String(row[CONFIG.COL.ID-1]) === String(id));
+  if (!r) return null;
+  const C = CONFIG.COL;
+  return {
+    id:         String(r[C.ID-1]),
+    nombre:     r[C.NOMBRE-1]     || '',
+    dpi:        r[C.DPI-1]        || '',
+    edad:       r[C.EDAD-1]       || '',
+    genero:     r[C.GENERO-1]     || '',
+    telefono:   r[C.TELEFONO-1]   || '',
+    zona:       r[C.ZONA-1]       || '',
+    email:      r[C.EMAIL-1]      || '',
+    educacion:  r[C.EDUCACION-1]  || '',
+    laboral:    r[C.LABORAL-1]    || '',
+    fortalezas: r[C.FORTALEZAS-1] || '',
+    objetivo:   r[C.OBJETIVO-1]   || '',
+    perfil:     r[C.PERFIL-1]     || '',
+    prioridad:  r[C.PRIORIDAD-1]  || '',
+    puntaje:    Number(r[C.PUNTAJE-1]) || 0,
+    dims:       [C.DIM1,C.DIM2,C.DIM3,C.DIM4,C.DIM5,C.DIM6].map(k => Number(r[k-1]) || 0),
+    estado:     r[C.ESTADO-1]     || '',
+    docUrl:     r[C.DOC_URL-1]    || ''
+  };
+}
+
+function cambiarEstadoParticipante(id, nuevoEstado) {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) return false;
+    const rows = hoja.getRange(2, 1, hoja.getLastRow()-1, CONFIG.COL.ID).getValues();
+    const idx  = rows.findIndex(r => String(r[CONFIG.COL.ID-1]) === String(id));
+    if (idx < 0) return false;
+    const numFila = idx + 2;
+    const datos   = hoja.getRange(numFila, 1, 1, 26).getValues()[0];
+    hoja.getRange(numFila, CONFIG.COL.ESTADO).setValue(nuevoEstado);
+    colorearFila(hoja, numFila, datos[CONFIG.COL.PERFIL-1]);
+    actualizarDashboard();
+    actualizarAnalytics(ss);
+    return true;
+  } catch(e) { return false; }
+}
+
+function fichaHtml() {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;font-size:13px;background:#f8f9fa;color:#333;overflow-y:auto}
+.top{background:#1a237e;padding:10px 12px;position:sticky;top:0;z-index:9}
+.top select{width:100%;padding:8px 10px;border:none;border-radius:6px;font-size:12px;color:#333;background:#fff}
+.empty{text-align:center;padding:50px 20px;color:#aaa;font-size:13px;line-height:2}
+.load{text-align:center;padding:50px;color:#1a237e;font-size:13px}
+.hdr{padding:14px;display:flex;gap:10px;align-items:center}
+.av{width:52px;height:52px;border-radius:50%;font-size:18px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nom{font-size:14px;font-weight:bold;line-height:1.3}
+.bdg{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
+.b{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;border:1.5px solid}
+.pts{text-align:center;padding:10px;background:#fff;border-bottom:1px solid #eee;border-top:1px solid #eee}
+.pn{font-size:30px;font-weight:bold}
+.sub{font-size:13px;color:#aaa}
+.sec{padding:10px 14px;background:#fff;border-bottom:1px solid #eee}
+.st{font-size:10px;font-weight:bold;color:#999;text-transform:uppercase;margin-bottom:7px;letter-spacing:.5px}
+.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+.row span:last-child{color:#555;text-align:right;max-width:60%}
+.desc{font-size:12px;color:#555;line-height:1.6}
+.acc{display:flex;gap:6px;align-items:center}
+.acc select{flex:1;padding:6px;border:1px solid #ddd;border-radius:5px;font-size:12px}
+.btn{padding:7px 12px;background:#1a237e;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:bold;white-space:nowrap}
+.btn:hover{background:#283593}
+.btn-ok{background:#2e7d32}.btn-ok:hover{background:#1b5e20}
+.toast{display:none;background:#2e7d32;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:bold;position:sticky;bottom:0}
+.dim-row{margin:5px 0}
+.dim-lbl{display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px}
+.dim-bar{background:#eee;border-radius:3px;height:7px}
+.dim-fill{height:7px;border-radius:3px}
+</style></head><body>
+<div class="top">
+  <select id="sel" onchange="cargar(this.value)">
+    <option value="">👤 — Selecciona participante —</option>
+  </select>
+</div>
+<div id="cont"><div class="empty">👤 Selecciona un participante<br>del desplegable de arriba</div></div>
+<div class="toast" id="toast">✅ Estado actualizado</div>
+<script>
+var COLORES={'Perfil A':{f:'#d9ead3',t:'#274e13'},'Perfil B':{f:'#cfe2f3',t:'#1c4587'},'Perfil C':{f:'#fff2cc',t:'#7f6000'},'Perfil D':{f:'#f4cccc',t:'#660000'}};
+var ESTADOS=['Orientación','Mentoría','Formación','Colocación','Completado','Pausado','Retirado'];
+var PRIOCOLOR={'CRÍTICO':'#c62828','ALTO':'#e65100','MEDIO':'#f9a825','BAJO':'#388e3c'};
+var DIMLBL=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+
+google.script.run.withSuccessHandler(function(lista){
+  var s=document.getElementById('sel');
+  lista.forEach(function(p){
+    var o=document.createElement('option');
+    o.value=p.id;
+    o.textContent=p.nombre+(p.perfil?' · '+p.perfil:'');
+    s.appendChild(o);
+  });
+}).obtenerParticipantes();
+
+function cargar(id){
+  if(!id){document.getElementById('cont').innerHTML='<div class="empty">👤 Selecciona un participante<br>del desplegable de arriba</div>';return;}
+  document.getElementById('cont').innerHTML='<div class="load">⏳ Cargando...</div>';
+  google.script.run.withSuccessHandler(mostrar).obtenerDatosParticipante(id);
+}
+
+function mostrar(d){
+  if(!d){document.getElementById('cont').innerHTML='<div class="empty">❌ No encontrado</div>';return;}
+  var c=COLORES[d.perfil]||{f:'#f5f5f5',t:'#333'};
+  var cP=PRIOCOLOR[d.prioridad]||'#388e3c';
+  var ini=d.nombre.split(' ').slice(0,2).map(function(p){return p[0]||'';}).join('').toUpperCase();
+  var h='';
+  h+='<div class="hdr" style="background:'+c.f+';border-bottom:3px solid '+c.t+'">';
+  h+='<div class="av" style="background:'+c.t+';color:#fff">'+ini+'</div>';
+  h+='<div><div class="nom" style="color:'+c.t+'">'+d.nombre+'</div>';
+  h+='<div class="bdg">';
+  h+='<span class="b" style="border-color:'+c.t+';color:'+c.t+'">'+d.perfil+'</span>';
+  h+='<span class="b" style="background:'+cP+';border-color:'+cP+';color:#fff">'+d.prioridad+'</span>';
+  h+='<span class="b" style="background:#fff;color:#777;border-color:#ddd">'+d.estado+'</span>';
+  h+='</div></div></div>';
+  h+='<div class="pts"><span class="pn" style="color:'+c.t+'">'+d.puntaje+'</span><span class="sub"> / 60</span></div>';
+  // Estado
+  h+='<div class="sec"><div class="st">Cambiar Estado</div><div class="acc">';
+  h+='<select id="est">';
+  ESTADOS.forEach(function(e){h+='<option'+(d.estado===e?' selected':'')+'>'+e+'</option>';});
+  h+='</select>';
+  h+='<button class="btn btn-ok" onclick="guardar(\''+d.id+'\')">✓ Guardar</button>';
+  h+='</div></div>';
+  // Datos
+  h+='<div class="sec"><div class="st">Datos Personales</div>';
+  [['DPI',d.dpi],['Edad',d.edad],['Género',d.genero],['Teléfono',d.telefono],['Zona',d.zona],['Email',d.email]].forEach(function(x){
+    h+='<div class="row"><span>'+x[0]+'</span><span>'+(x[1]||'—')+'</span></div>';
+  });
+  h+='</div>';
+  if(d.objetivo)h+='<div class="sec"><div class="st">Objetivo</div><div class="desc">'+d.objetivo+'</div></div>';
+  if(d.fortalezas)h+='<div class="sec"><div class="st">Fortalezas</div><div class="desc">'+d.fortalezas+'</div></div>';
+  // Dims
+  h+='<div class="sec"><div class="st">Dimensiones</div>';
+  d.dims.forEach(function(v,i){
+    var pct=Math.round((v/10)*100);
+    h+='<div class="dim-row"><div class="dim-lbl"><span>'+DIMLBL[i]+'</span><span>'+v+'/10</span></div>';
+    h+='<div class="dim-bar"><div class="dim-fill" style="width:'+pct+'%;background:'+c.t+'"></div></div></div>';
+  });
+  h+='</div>';
+  if(d.docUrl)h+='<div class="sec"><a href="'+d.docUrl+'" target="_blank" style="display:block;text-align:center;background:#1a237e;color:#fff;padding:10px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold">📄 Abrir Expediente en Drive</a></div>';
+  document.getElementById('cont').innerHTML=h;
+}
+
+function guardar(id){
+  var e=document.getElementById('est').value;
+  google.script.run.withSuccessHandler(function(ok){
+    if(ok){
+      var t=document.getElementById('toast');
+      t.style.display='block';
+      setTimeout(function(){t.style.display='none';cargar(id);},1500);
+    }
+  }).cambiarEstadoParticipante(id,e);
+}
+</script></body></html>`;
+}
+
+// ============================================================================
+// SIDEBAR INTERACTIVO — DERIVACIONES
+// ============================================================================
+
+function abrirDerivacionesInteractivas() {
+  const html = HtmlService.createHtmlOutput(derivacionesHtml())
+    .setTitle('➡️ Derivaciones')
+    .setWidth(420);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function obtenerDerivaciones(filtro) {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName('Derivaciones');
+    if (!hoja || hoja.getLastRow() < 2) return [];
+    const tz = Session.getScriptTimeZone();
+    let rows = hoja.getRange(2, 1, hoja.getLastRow()-1, 10).getValues()
+      .map((r, i) => ({
+        fila:        i + 2,
+        fecha:       r[0] ? Utilities.formatDate(new Date(r[0]), tz, 'dd/MM/yy') : '',
+        id:          r[1], nombre: r[2], tipo: r[3], destino: r[4],
+        motivo:      r[5], estado: r[6], responsable: r[7], notas: r[9]
+      }))
+      .filter(r => r.id || r.nombre);
+    if (filtro === 'Pendiente')  rows = rows.filter(r => r.estado === 'Pendiente');
+    if (filtro === 'Completado') rows = rows.filter(r => r.estado === 'Completado');
+    if (filtro === 'URGENTE')    rows = rows.filter(r => r.tipo && r.tipo.includes('URGENTE'));
+    return rows.reverse(); // más recientes primero
+  } catch(e) { return []; }
+}
+
+function marcarDerivacionCompletada(numFila) {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName('Derivaciones');
+    if (!hoja) return false;
+    hoja.getRange(numFila, 7).setValue('Completado');
+    hoja.getRange(numFila, 1, 1, 10).setBackground('#e8f5e9');
+    return true;
+  } catch(e) { return false; }
+}
+
+function agregarDerivacionManual(datos) {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName('Derivaciones');
+    if (!hoja) return false;
+    hoja.appendRow([
+      new Date(), datos.id||'', datos.nombre||'',
+      datos.tipo||'💡 SUGERIDA', datos.destino||'',
+      datos.motivo||'', 'Pendiente', datos.responsable||'', '', datos.notas||''
+    ]);
+    const ultima = hoja.getLastRow();
+    const color  = (datos.tipo||'').includes('URGENTE') ? '#ffcdd2' : '#fff9c4';
+    hoja.getRange(ultima, 1, 1, 10).setBackground(color);
+    return true;
+  } catch(e) { return false; }
+}
+
+function derivacionesHtml() {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;font-size:12px;background:#f8f9fa;color:#333}
+.top{background:#e65100;padding:10px 12px;position:sticky;top:0;z-index:9;display:flex;gap:6px;align-items:center}
+.top select{flex:1;padding:7px;border:none;border-radius:5px;font-size:12px;color:#333}
+.top button{padding:7px 10px;background:#fff;color:#e65100;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:12px}
+.empty{text-align:center;padding:40px 20px;color:#aaa;line-height:2}
+.load{text-align:center;padding:40px;color:#e65100}
+.card{background:#fff;margin:8px;border-radius:8px;border-left:4px solid #ccc;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.card.urgente{border-left-color:#c62828}
+.card.alerta{border-left-color:#f9a825}
+.card.oport{border-left-color:#2e7d32}
+.card.sug{border-left-color:#1565c0}
+.card.done{border-left-color:#aaa;opacity:.65}
+.ch{padding:10px 12px;border-bottom:1px solid #f5f5f5}
+.tipo{font-size:10px;font-weight:bold;text-transform:uppercase;color:#666;margin-bottom:3px}
+.nombre{font-size:13px;font-weight:bold;color:#222}
+.destino{font-size:12px;color:#555;margin-top:2px}
+.motivo{font-size:11px;color:#888;margin-top:4px;line-height:1.4}
+.cf{padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+.meta{font-size:10px;color:#aaa}
+.btn-ok{padding:5px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold}
+.btn-ok:hover{background:#1b5e20}
+.done-lbl{font-size:11px;color:#2e7d32;font-weight:bold}
+.fab{position:fixed;bottom:16px;right:16px;width:44px;height:44px;background:#e65100;color:#fff;border:none;border-radius:50%;font-size:22px;cursor:pointer;box-shadow:0 3px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:99}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;overflow-y:auto}
+.mbox{background:#fff;margin:20px;border-radius:10px;overflow:hidden}
+.mhdr{background:#e65100;color:#fff;padding:14px;font-weight:bold;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.mhdr button{background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer}
+.mform{padding:14px}
+label{display:block;font-weight:bold;font-size:11px;color:#555;margin:10px 0 4px;text-transform:uppercase}
+input,select,textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:5px;font-size:12px;font-family:inherit}
+textarea{height:60px;resize:vertical}
+.mbtn{display:block;width:100%;margin-top:14px;padding:10px;background:#e65100;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer}
+.toast{display:none;position:fixed;bottom:70px;right:16px;background:#2e7d32;color:#fff;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:bold;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+</style></head><body>
+<div class="top">
+  <select id="filtro" onchange="cargar()">
+    <option value="Todos">Todas las derivaciones</option>
+    <option value="Pendiente">⏳ Pendientes</option>
+    <option value="URGENTE">🚨 Urgentes</option>
+    <option value="Completado">✅ Completadas</option>
+  </select>
+  <button onclick="cargar()">↻</button>
+</div>
+<div id="lista"><div class="load">⏳ Cargando...</div></div>
+<button class="fab" onclick="abrirModal()" title="Nueva derivación">＋</button>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <div class="mhdr">➕ Nueva Derivación<button onclick="cerrarModal()">✕</button></div>
+    <div class="mform">
+      <label>Nombre participante</label><input id="mn" placeholder="Nombre completo">
+      <label>ID Creamos</label><input id="mid" placeholder="ID (opcional)">
+      <label>Tipo</label>
+      <select id="mtipo">
+        <option>💡 SUGERIDA</option>
+        <option>⚠️ ALERTA</option>
+        <option>🚨 URGENTE</option>
+        <option>✅ OPORTUNIDAD</option>
+      </select>
+      <label>Destino / Servicio</label><input id="mdest" placeholder="Ej: Creamos Voces">
+      <label>Motivo</label><textarea id="mmot" placeholder="Describe el motivo de la derivación..."></textarea>
+      <label>Responsable</label><input id="mres" placeholder="Quién lo atenderá">
+      <button class="mbtn" onclick="guardarDerivacion()">💾 Guardar Derivación</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast">✅ Listo</div>
+
+<script>
+var TIPOCLASS={'🚨 URGENTE':'urgente','⚠️ ALERTA':'alerta','✅ OPORTUNIDAD':'oport','💡 SUGERIDA':'sug'};
+
+function cargar(){
+  var f=document.getElementById('filtro').value;
+  document.getElementById('lista').innerHTML='<div class="load">⏳ Cargando...</div>';
+  google.script.run.withSuccessHandler(renderLista).obtenerDerivaciones(f);
+}
+
+function renderLista(items){
+  if(!items||!items.length){document.getElementById('lista').innerHTML='<div class="empty">✅ Sin derivaciones para este filtro</div>';return;}
+  var h='';
+  items.forEach(function(d){
+    var done=d.estado==='Completado';
+    var cls=TIPOCLASS[d.tipo]||'sug';
+    if(done)cls='done';
+    h+='<div class="card '+cls+'">';
+    h+='<div class="ch">';
+    h+='<div class="tipo">'+d.tipo+'</div>';
+    h+='<div class="nombre">'+d.nombre+(d.id?' <span style="font-size:10px;color:#aaa">('+d.id+')</span>':'')+'</div>';
+    h+='<div class="destino">📍 '+d.destino+'</div>';
+    if(d.motivo)h+='<div class="motivo">'+d.motivo+'</div>';
+    h+='</div>';
+    h+='<div class="cf">';
+    h+='<div class="meta">'+d.fecha+(d.responsable?' · '+d.responsable:'')+'</div>';
+    if(done){h+='<span class="done-lbl">✅ Completada</span>';}
+    else{h+='<button class="btn-ok" onclick="completar('+d.fila+')">✓ Completar</button>';}
+    h+='</div></div>';
+  });
+  document.getElementById('lista').innerHTML=h;
+}
+
+function completar(fila){
+  google.script.run.withSuccessHandler(function(ok){
+    if(ok){toast('✅ Derivación completada');setTimeout(cargar,800);}
+  }).marcarDerivacionCompletada(fila);
+}
+
+function abrirModal(){document.getElementById('modal').style.display='block';}
+function cerrarModal(){document.getElementById('modal').style.display='none';}
+
+function guardarDerivacion(){
+  var datos={
+    nombre:document.getElementById('mn').value.trim(),
+    id:document.getElementById('mid').value.trim(),
+    tipo:document.getElementById('mtipo').value,
+    destino:document.getElementById('mdest').value.trim(),
+    motivo:document.getElementById('mmot').value.trim(),
+    responsable:document.getElementById('mres').value.trim()
+  };
+  if(!datos.nombre||!datos.destino){alert('Completa Nombre y Destino');return;}
+  google.script.run.withSuccessHandler(function(ok){
+    if(ok){cerrarModal();toast('✅ Derivación guardada');setTimeout(cargar,800);}
+  }).agregarDerivacionManual(datos);
+}
+
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.style.display='block';
+  setTimeout(function(){t.style.display='none';},2000);
+}
+
+cargar(); // cargar al abrir
+</script></body></html>`;
 }
 
 // ============================================================================
