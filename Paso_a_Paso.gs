@@ -118,16 +118,29 @@ function instalar() {
       dash.getRange(1, 1).setFontSize(16).setFontWeight('bold');
     }
 
+    // Eliminar hojas vacías por defecto que Google crea automáticamente
+    const hojasDefault = ['Hoja 1','Hoja 2','Hoja 3','Hoja 4','Sheet1','Sheet2','Sheet3'];
+    hojasDefault.forEach(nombre => {
+      const h = ss.getSheetByName(nombre);
+      if (h && h.getLastRow() <= 1 && h.getLastColumn() <= 1) {
+        try { ss.deleteSheet(h); } catch(_) {}
+      }
+    });
+
+    // Agregar validación de desplegable en columna Estado (23)
+    aplicarValidacionEstado(ss.getSheetByName(CONFIG.HOJA));
+
     configurarTriggers();
 
     SpreadsheetApp.getUi().alert(
-      '✅ Sistema v7.0 instalado\n\n' +
-      '✨ Nuevas características:\n' +
+      '✅ Sistema instalado\n\n' +
+      '✨ Características activas:\n' +
       '📧 Email semanal los lunes\n' +
       '🚨 Alertas de casos dormidos\n' +
       '➡️ Registro de derivaciones\n' +
       '📜 Historial de cambios\n' +
-      '📊 Dashboard automático\n\n' +
+      '📊 Dashboard automático\n' +
+      '🔽 Desplegables en columna Estado\n\n' +
       'Próximo: 🔄 Sincronizar Kobo'
     );
   } catch(e) {
@@ -500,13 +513,21 @@ function manejarEdicion(e) {
         sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior);
       }
 
-      // Si cambió ESTADO → Calendar + Email al participante
+      // Si cambió ESTADO → Calendar + Email + refresh Dashboard
       if (columna === C.ESTADO) {
         const nombre   = datos[C.NOMBRE - 1] || '';
         const email    = datos[C.EMAIL - 1] || '';
         const docUrl   = datos[C.DOC_URL - 1] || '';
         crearEventoCalendario(nombre, valorNuevo, docUrl);
         if (email) notificarParticipante(nombre, email, valorNuevo, datos);
+        // Actualizar Dashboard en tiempo real al cambiar estado
+        actualizarDashboard();
+        actualizarAnalytics(e.source);
+      }
+
+      // Si cambió PERFIL → refresh Dashboard
+      if (columna === C.PERFIL) {
+        actualizarDashboard();
       }
     }
   } catch(e) {
@@ -1380,6 +1401,22 @@ function probarEmail() {
 }
 
 // ============================================================================
+// VALIDACIÓN DESPLEGABLE — Columna Estado
+// ============================================================================
+
+function aplicarValidacionEstado(hoja) {
+  if (!hoja) return;
+  const ESTADOS = ['Orientación','Mentoría','Formación','Colocación','Completado','Pausado','Retirado'];
+  const regla = SpreadsheetApp.newDataValidation()
+    .requireValueInList(ESTADOS, true)
+    .setAllowInvalid(false)
+    .setHelpText('Selecciona el estado del participante')
+    .build();
+  // Aplica desde fila 2 hasta 1000 en la columna Estado (23)
+  hoja.getRange(2, CONFIG.COL.ESTADO, 999, 1).setDataValidation(regla);
+}
+
+// ============================================================================
 // FORMATEAR HOJA MAESTRO
 // ============================================================================
 
@@ -1451,7 +1488,19 @@ function formatearHojaMaestro() {
       datos.forEach((fila, i) => colorearFila(hoja, i + 2, fila[CONFIG.COL.PERFIL - 1]));
     }
 
-    SpreadsheetApp.getUi().alert('✅ Hoja Maestro formateada\n\n• Anchos de columna ajustados\n• Encabezado mejorado\n• Fila y columna congeladas\n• Colores por perfil aplicados');
+    // Aplicar desplegable en columna Estado
+    aplicarValidacionEstado(hoja);
+
+    // Eliminar hojas vacías por defecto si quedaron
+    const ss = SpreadsheetApp.getActive();
+    ['Hoja 1','Hoja 2','Hoja 3','Hoja 4','Sheet1','Sheet2','Sheet3'].forEach(nombre => {
+      const h = ss.getSheetByName(nombre);
+      if (h && h.getLastRow() <= 1 && h.getLastColumn() <= 1) {
+        try { ss.deleteSheet(h); } catch(_) {}
+      }
+    });
+
+    SpreadsheetApp.getUi().alert('✅ Hoja Maestro formateada\n\n• Anchos de columna ajustados\n• Encabezado mejorado\n• Fila y columna congeladas\n• Colores por perfil aplicados\n• Desplegables en columna Estado aplicados');
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e);
   }
