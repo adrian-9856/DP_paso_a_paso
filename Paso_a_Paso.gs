@@ -37,6 +37,7 @@ function onOpen() {
       .addSeparator()
       .addItem('🔄 Sincronizar Kobo', 'sincronizar')
       .addItem('🎨 Colorear Tabla', 'colorearTabla')
+      .addItem('🖌️ Formatear Hoja Maestro', 'formatearHojaMaestro')
       .addItem('📋 Ver Ficha', 'verFicha')
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
@@ -46,6 +47,7 @@ function onOpen() {
       .addSeparator()
       .addItem('🧪 Probar Kobo', 'probarKobo')
       .addItem('🔍 Ver Campos Kobo', 'diagnosticarCamposKobo')
+      .addItem('📧 Probar Email', 'probarEmail')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
       .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
@@ -198,33 +200,33 @@ function sincronizar(silencioso) {
     let agregados = 0;
 
     registros.forEach(r => {
-      const id = String(r['creamos_id'] || r['_id'] || '');
+      const id = String(obtenerCampoKobo(r, 'creamos_id') || r['_id'] || '');
       if (!id || existentes.has(id)) return;
 
-      const nombre = r['nombre_completo_del_la_participante'] || 'Participante ' + id;
+      const nombre = obtenerCampoKobo(r, 'nombre_completo_del_la_participante') || 'Participante ' + id;
       const expediente = crearExpediente(folderBase, id, nombre, r);
 
       const fila = [
         id, new Date(), nombre,
-        r['numero_de_dpi_opcional'] || '',
-        r['edad'] || '',
-        r['genero'] || '',
-        r['numero_de_telefono'] || '',
-        r['lugar_de_residencia'] || '',
-        r['correo_electronico_opcional'] || '',
-        r['cual_es_el_ultimo_grado_que_completaste'] || '',
-        r['cual_es_tu_situacion_laboral_actual'] || '',
-        r['que_sabes_hacer_bien'] || '',
-        r['que_tipo_de_empleo_estas_buscando_especificamente'] || '',
-        normalizarPerfil(r['perfil_asignado']),
-        normalizarPrioridad(r['prioridad_caso']),
-        Number(r['puntaje_total_60']) || 0,
-        Number(r['dimension_1_capital_educativo']) || 0,
-        Number(r['dimension_2_capital_laboral']) || 0,
-        Number(r['dimension_3_habilidades_digitales']) || 0,
-        Number(r['dimension_4_claridad_vocacional']) || 0,
-        Number(r['dimension_5_barreras_estructurales']) || 0,
-        Number(r['dimension_6_red_apoyo']) || 0,
+        obtenerCampoKobo(r, 'numero_de_dpi_opcional'),
+        obtenerCampoKobo(r, 'edad'),
+        obtenerCampoKobo(r, 'genero'),
+        obtenerCampoKobo(r, 'numero_de_telefono'),
+        obtenerCampoKobo(r, 'lugar_de_residencia'),
+        obtenerCampoKobo(r, 'correo_electronico_opcional'),
+        obtenerCampoKobo(r, 'cual_es_el_ultimo_grado_que_completaste'),
+        obtenerCampoKobo(r, 'cual_es_tu_situacion_laboral_actual'),
+        obtenerCampoKobo(r, 'que_sabes_hacer_bien'),
+        obtenerCampoKobo(r, 'que_tipo_de_empleo_estas_buscando_especificamente'),
+        normalizarPerfil(obtenerCampoKobo(r, 'perfil_asignado')),
+        normalizarPrioridad(obtenerCampoKobo(r, 'prioridad_caso')),
+        Number(obtenerCampoKobo(r, 'puntaje_total_60')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_1_capital_educativo')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_2_capital_laboral')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_3_habilidades_digitales')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_4_claridad_vocacional')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_5_barreras_estructurales')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_6_red_apoyo')) || 0,
         'Orientación',
         expediente.carpetaId,
         expediente.docId,
@@ -1332,6 +1334,126 @@ function actualizarAnalytics(ss) {
 }
 
 // ============================================================================
+// PROBAR EMAIL
+// ============================================================================
+
+function probarEmail() {
+  try {
+    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+    const ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    MailApp.sendEmail({
+      to: adminEmail,
+      subject: '✅ Prueba de correo — Paso a Paso',
+      body:
+        '╔══════════════════════════════════╗\n' +
+        '║   PRUEBA DE CORREO - PASO A PASO ║\n' +
+        '╚══════════════════════════════════╝\n\n' +
+        'Este es un correo de prueba del sistema.\n\n' +
+        'Enviado:  ' + ahora + '\n' +
+        'Destino:  ' + adminEmail + '\n\n' +
+        '¡El sistema de correos funciona correctamente! 🎉\n\n' +
+        'Sistema Paso a Paso — Creamos'
+    });
+    SpreadsheetApp.getUi().alert('✅ Correo de prueba enviado a:\n' + adminEmail + '\n\nRevisa tu bandeja de entrada.');
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error al enviar correo:\n\n' + e + '\n\nVerifica que el script tenga permiso de MailApp.');
+  }
+}
+
+// ============================================================================
+// FORMATEAR HOJA MAESTRO
+// ============================================================================
+
+function formatearHojaMaestro() {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    if (!hoja) {
+      SpreadsheetApp.getUi().alert('⚠️ La hoja Maestro no existe. Instala el sistema primero.');
+      return;
+    }
+
+    // Encabezado
+    const totalCols = 26;
+    const headerRange = hoja.getRange(1, 1, 1, totalCols);
+    headerRange
+      .setBackground('#1a237e')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold')
+      .setFontSize(10)
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle');
+    hoja.setRowHeight(1, 36);
+
+    // Anchos de columna optimizados
+    const anchos = {
+      1:  80,   // ID
+      2:  100,  // Fecha
+      3:  200,  // Nombre
+      4:  100,  // DPI
+      5:  55,   // Edad
+      6:  80,   // Género
+      7:  110,  // Teléfono
+      8:  120,  // Zona
+      9:  180,  // Email
+      10: 160,  // Nivel Educativo
+      11: 140,  // Situación Laboral
+      12: 220,  // Fortalezas
+      13: 220,  // Objetivo Laboral
+      14: 90,   // Perfil
+      15: 90,   // Prioridad
+      16: 75,   // Puntaje
+      17: 75,   // Dim Educativo
+      18: 75,   // Dim Laboral
+      19: 75,   // Dim Digital
+      20: 75,   // Dim Vocacional
+      21: 75,   // Dim Barreras
+      22: 75,   // Dim Apoyo
+      23: 110,  // Estado
+      24: 50,   // Carpeta ID (ocultar visualmente)
+      25: 50,   // Doc ID (ocultar visualmente)
+      26: 200   // Doc URL
+    };
+    Object.entries(anchos).forEach(([col, ancho]) => hoja.setColumnWidth(Number(col), ancho));
+
+    // Congelar fila 1 y columna 1
+    hoja.setFrozenRows(1);
+    hoja.setFrozenColumns(1);
+
+    // Alineación de columnas numéricas (dimensiones y puntaje)
+    [16,17,18,19,20,21,22].forEach(col => {
+      if (hoja.getLastRow() > 1) {
+        hoja.getRange(2, col, Math.max(hoja.getLastRow()-1,1), 1).setHorizontalAlignment('center');
+      }
+    });
+
+    // Volver a colorear filas por perfil
+    if (hoja.getLastRow() > 1) {
+      const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, totalCols).getValues();
+      datos.forEach((fila, i) => colorearFila(hoja, i + 2, fila[CONFIG.COL.PERFIL - 1]));
+    }
+
+    SpreadsheetApp.getUi().alert('✅ Hoja Maestro formateada\n\n• Anchos de columna ajustados\n• Encabezado mejorado\n• Fila y columna congeladas\n• Colores por perfil aplicados');
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+  }
+}
+
+// ============================================================================
+// HELPER: OBTENER CAMPO KOBO (maneja prefijos de grupo)
+// ============================================================================
+
+// KoboToolbox puede devolver campos con prefijo de grupo, ej: "grupo_abc/nombre_campo".
+// Esta función intenta primero el nombre exacto y luego busca por sufijo.
+function obtenerCampoKobo(registro, campo) {
+  if (campo in registro) return registro[campo];
+  const sufijo = '/' + campo;
+  for (const clave of Object.keys(registro)) {
+    if (clave.endsWith(sufijo)) return registro[clave];
+  }
+  return '';
+}
+
+// ============================================================================
 // NORMALIZACIÓN DE VALORES KOBO
 // ============================================================================
 
@@ -1522,12 +1644,14 @@ function crearEventoCalendario(nombre, nuevoEstado, docUrl) {
 
 function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
   try {
-    const C = CONFIG.COL;
     const estados = ['Mentoría', 'Formación', 'Completado'];
     if (!estados.includes(nuevoEstado)) return;
 
+    // Validar formato de email antes de intentar enviar
+    if (!emailParticipante || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(emailParticipante).trim())) return;
+
+    const C = CONFIG.COL;
     const nombreCorto = nombre.split(' ')[0];
-    const responsable = datos[14] || 'Tu equipo Creamos'; // columna 15 = Responsable si existe
     const docUrl = datos[C.DOC_URL - 1] || '';
 
     let cuerpo = '';
@@ -1576,14 +1700,18 @@ function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
 
     if (cuerpo) {
       MailApp.sendEmail({
-        to: emailParticipante,
+        to: String(emailParticipante).trim(),
         subject: asunto,
         body: cuerpo,
         replyTo: CONFIG.ADMIN_EMAIL
       });
     }
   } catch(e) {
-    // Sin email o error silencioso
+    // Registrar en Log si existe
+    try {
+      const logSheet = SpreadsheetApp.getActive().getSheetByName('Log');
+      if (logSheet) logSheet.appendRow([new Date(), 'EMAIL_ERROR', nombre, emailParticipante, nuevoEstado, String(e), Session.getEffectiveUser().getEmail()]);
+    } catch(_) {}
   }
 }
 
