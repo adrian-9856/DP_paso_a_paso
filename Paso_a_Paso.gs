@@ -203,30 +203,33 @@ function sincronizar(silencioso) {
       const id = String(obtenerCampoKobo(r, 'creamos_id') || r['_id'] || '');
       if (!id || existentes.has(id)) return;
 
-      const nombre = obtenerCampoKobo(r, 'nombre_completo_del_la_participante') || 'Participante ' + id;
+      const nombre = obtenerCampoKobo(r,
+        'nombre_completo_del_la_participante',
+        'nombre_completo', 'nombre_participante', 'nombre', 'full_name'
+      ) || 'Participante ' + id;
       const expediente = crearExpediente(folderBase, id, nombre, r);
 
       const fila = [
         id, new Date(), nombre,
-        obtenerCampoKobo(r, 'numero_de_dpi_opcional'),
-        obtenerCampoKobo(r, 'edad'),
-        obtenerCampoKobo(r, 'genero'),
-        obtenerCampoKobo(r, 'numero_de_telefono'),
-        obtenerCampoKobo(r, 'lugar_de_residencia'),
-        obtenerCampoKobo(r, 'correo_electronico_opcional'),
-        obtenerCampoKobo(r, 'cual_es_el_ultimo_grado_que_completaste'),
-        obtenerCampoKobo(r, 'cual_es_tu_situacion_laboral_actual'),
-        obtenerCampoKobo(r, 'que_sabes_hacer_bien'),
-        obtenerCampoKobo(r, 'que_tipo_de_empleo_estas_buscando_especificamente'),
-        normalizarPerfil(obtenerCampoKobo(r, 'perfil_asignado')),
-        normalizarPrioridad(obtenerCampoKobo(r, 'prioridad_caso')),
-        Number(obtenerCampoKobo(r, 'puntaje_total_60')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_1_capital_educativo')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_2_capital_laboral')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_3_habilidades_digitales')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_4_claridad_vocacional')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_5_barreras_estructurales')) || 0,
-        Number(obtenerCampoKobo(r, 'dimension_6_red_apoyo')) || 0,
+        obtenerCampoKobo(r, 'numero_de_dpi_opcional', 'dpi', 'numero_dpi', 'cedula', 'cui'),
+        obtenerCampoKobo(r, 'edad', 'age'),
+        obtenerCampoKobo(r, 'genero', 'sexo', 'gender'),
+        obtenerCampoKobo(r, 'numero_de_telefono', 'telefono', 'celular', 'numero_telefono', 'phone'),
+        obtenerCampoKobo(r, 'lugar_de_residencia', 'zona', 'municipio', 'residencia', 'lugar_residencia', 'comunidad'),
+        obtenerCampoKobo(r, 'correo_electronico_opcional', 'correo_electronico', 'email', 'correo'),
+        obtenerCampoKobo(r, 'cual_es_el_ultimo_grado_que_completaste', 'nivel_educativo', 'educacion', 'grado', 'ultimo_grado', 'escolaridad'),
+        obtenerCampoKobo(r, 'cual_es_tu_situacion_laboral_actual', 'situacion_laboral', 'laboral', 'empleo_actual', 'situacion_empleo'),
+        obtenerCampoKobo(r, 'que_sabes_hacer_bien', 'fortalezas', 'habilidades', 'sabes_hacer', 'destrezas'),
+        obtenerCampoKobo(r, 'que_tipo_de_empleo_estas_buscando_especificamente', 'objetivo_laboral', 'tipo_empleo', 'empleo_buscado', 'objetivo', 'busca_empleo'),
+        normalizarPerfil(obtenerCampoKobo(r, 'perfil_asignado', 'perfil')),
+        normalizarPrioridad(obtenerCampoKobo(r, 'prioridad_caso', 'prioridad')),
+        Number(obtenerCampoKobo(r, 'puntaje_total_60', 'puntaje_total', 'puntaje')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_1_capital_educativo', 'dim1', 'capital_educativo')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_2_capital_laboral', 'dim2', 'capital_laboral')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_3_habilidades_digitales', 'dim3', 'habilidades_digitales')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_4_claridad_vocacional', 'dim4', 'claridad_vocacional')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_5_barreras_estructurales', 'dim5', 'barreras_estructurales', 'barreras')) || 0,
+        Number(obtenerCampoKobo(r, 'dimension_6_red_apoyo', 'dim6', 'red_apoyo', 'apoyo')) || 0,
         'Orientación',
         expediente.carpetaId,
         expediente.docId,
@@ -951,45 +954,61 @@ function diagnosticarCamposKobo() {
     const r = registros[0];
     const campos = Object.keys(r).sort();
 
-    // Campos que el sistema espera
+    // Campos que el sistema espera con sus variantes alternativas
     const esperados = {
-      'nombre': 'nombre_completo_del_la_participante',
-      'dpi': 'numero_de_dpi_opcional',
-      'edad': 'edad',
-      'genero': 'genero',
-      'telefono': 'numero_de_telefono',
-      'zona': 'lugar_de_residencia',
-      'email': 'correo_electronico_opcional',
-      'educacion': 'cual_es_el_ultimo_grado_que_completaste',
-      'laboral': 'cual_es_tu_situacion_laboral_actual',
-      'fortalezas': 'que_sabes_hacer_bien',
-      'objetivo': 'que_tipo_de_empleo_estas_buscando_especificamente',
-      'perfil': 'perfil_asignado',
-      'prioridad': 'prioridad_caso',
-      'puntaje': 'puntaje_total_60',
-      'dim1': 'dimension_1_capital_educativo',
-      'dim2': 'dimension_2_capital_laboral',
-      'dim3': 'dimension_3_habilidades_digitales',
-      'dim4': 'dimension_4_claridad_vocacional',
-      'dim5': 'dimension_5_barreras_estructurales',
-      'dim6': 'dimension_6_red_apoyo'
+      'nombre':     ['nombre_completo_del_la_participante','nombre_completo','nombre_participante','nombre','full_name'],
+      'dpi':        ['numero_de_dpi_opcional','dpi','numero_dpi','cedula','cui'],
+      'edad':       ['edad','age'],
+      'genero':     ['genero','sexo','gender'],
+      'telefono':   ['numero_de_telefono','telefono','celular','numero_telefono','phone'],
+      'zona':       ['lugar_de_residencia','zona','municipio','residencia','lugar_residencia','comunidad'],
+      'email':      ['correo_electronico_opcional','correo_electronico','email','correo'],
+      'educacion':  ['cual_es_el_ultimo_grado_que_completaste','nivel_educativo','educacion','grado','ultimo_grado','escolaridad'],
+      'laboral':    ['cual_es_tu_situacion_laboral_actual','situacion_laboral','laboral','empleo_actual'],
+      'fortalezas': ['que_sabes_hacer_bien','fortalezas','habilidades','sabes_hacer','destrezas'],
+      'objetivo':   ['que_tipo_de_empleo_estas_buscando_especificamente','objetivo_laboral','tipo_empleo','objetivo'],
+      'perfil':     ['perfil_asignado','perfil'],
+      'prioridad':  ['prioridad_caso','prioridad'],
+      'puntaje':    ['puntaje_total_60','puntaje_total','puntaje'],
+      'dim1':       ['dimension_1_capital_educativo','dim1','capital_educativo'],
+      'dim2':       ['dimension_2_capital_laboral','dim2','capital_laboral'],
+      'dim3':       ['dimension_3_habilidades_digitales','dim3','habilidades_digitales'],
+      'dim4':       ['dimension_4_claridad_vocacional','dim4','claridad_vocacional'],
+      'dim5':       ['dimension_5_barreras_estructurales','dim5','barreras_estructurales','barreras'],
+      'dim6':       ['dimension_6_red_apoyo','dim6','red_apoyo','apoyo']
     };
+
+    // Determinar qué claves del sistema están presentes en el registro
+    const sistemaClavesEncontradas = new Set();
+    Object.values(esperados).forEach(variantes => {
+      variantes.forEach(v => {
+        if (v in r) sistemaClavesEncontradas.add(v);
+        Object.keys(r).forEach(k => { if (k.endsWith('/' + v)) sistemaClavesEncontradas.add(k); });
+      });
+    });
 
     let filasCampos = '';
     campos.forEach(k => {
       const val = String(r[k] || '').substring(0, 60);
-      const esSistema = Object.values(esperados).includes(k);
+      const esSistema = sistemaClavesEncontradas.has(k);
       const bg = esSistema ? '#e8f5e9' : '#fff';
       const mark = esSistema ? ' ✅' : '';
       filasCampos += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + k + mark + '</td><td style="padding:3px 6px;font-size:10px;color:#555;max-width:160px;overflow:hidden;white-space:nowrap">' + val + '</td></tr>';
     });
 
     let filasEsperados = '';
-    Object.entries(esperados).forEach(([campo, clave]) => {
-      const presente = clave in r;
-      const valor = presente ? String(r[clave]).substring(0, 40) : '⚠️ CAMPO NO ENCONTRADO';
+    Object.entries(esperados).forEach(([campo, variantes]) => {
+      const encontrado = obtenerCampoKobo(r, ...variantes);
+      const claveEncontrada = variantes.find(v => {
+        if (v in r) return true;
+        return Object.keys(r).some(k => k.endsWith('/' + v));
+      }) || null;
+      const claveReal = claveEncontrada ? (claveEncontrada in r ? claveEncontrada : Object.keys(r).find(k => k.endsWith('/' + claveEncontrada)) || claveEncontrada) : null;
+      const presente = !!encontrado || encontrado === 0;
+      const valor = presente ? String(encontrado).substring(0, 40) : '⚠️ NO ENCONTRADO — revisa el nombre en Kobo';
       const bg = presente ? '#e8f5e9' : '#ffcdd2';
-      filasEsperados += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-weight:bold">' + campo + '</td><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + clave + '</td><td style="padding:3px 6px;font-size:10px">' + valor + '</td></tr>';
+      const claveTexto = claveReal ? claveReal : variantes[0] + ' (u otras ' + (variantes.length-1) + ' variantes)';
+      filasEsperados += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-weight:bold">' + campo + '</td><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + claveTexto + '</td><td style="padding:3px 6px;font-size:10px">' + valor + '</td></tr>';
     });
 
     const html = HtmlService.createHtmlOutput(
@@ -1442,13 +1461,16 @@ function formatearHojaMaestro() {
 // HELPER: OBTENER CAMPO KOBO (maneja prefijos de grupo)
 // ============================================================================
 
-// KoboToolbox puede devolver campos con prefijo de grupo, ej: "grupo_abc/nombre_campo".
-// Esta función intenta primero el nombre exacto y luego busca por sufijo.
-function obtenerCampoKobo(registro, campo) {
-  if (campo in registro) return registro[campo];
-  const sufijo = '/' + campo;
-  for (const clave of Object.keys(registro)) {
-    if (clave.endsWith(sufijo)) return registro[clave];
+// KoboToolbox puede devolver campos con prefijo de grupo (ej: "grupo_abc/nombre_campo")
+// o con nombres distintos a los esperados. Esta función acepta varios candidatos y
+// devuelve el primero que encuentre (exacto o con prefijo de grupo).
+function obtenerCampoKobo(registro, ...candidatos) {
+  for (const campo of candidatos) {
+    if (campo in registro) return registro[campo];
+    const sufijo = '/' + campo;
+    for (const clave of Object.keys(registro)) {
+      if (clave.endsWith(sufijo)) return registro[clave];
+    }
   }
   return '';
 }
