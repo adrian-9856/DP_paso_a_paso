@@ -515,18 +515,20 @@ function manejarEdicion(e) {
 
       // Si cambió ESTADO → Calendar + Email + refresh Dashboard
       if (columna === C.ESTADO) {
-        const nombre   = datos[C.NOMBRE - 1] || '';
-        const email    = datos[C.EMAIL - 1] || '';
-        const docUrl   = datos[C.DOC_URL - 1] || '';
-        crearEventoCalendario(nombre, valorNuevo, docUrl);
-        if (email) notificarParticipante(nombre, email, valorNuevo, datos);
-        // Actualizar Dashboard en tiempo real al cambiar estado
+        const nombre = datos[C.NOMBRE - 1] || '';
+        const email  = datos[C.EMAIL - 1]  || '';
+        const docUrl = datos[C.DOC_URL - 1] || '';
+        // Solo re-colorear fila y actualizar Dashboard (liviano, sin Analytics)
+        colorearFila(sheet, fila, datos[C.PERFIL - 1]);
         actualizarDashboard();
-        actualizarAnalytics(e.source);
+        // Email y Calendar en background (pueden ser lentos)
+        try { crearEventoCalendario(nombre, valorNuevo, docUrl); } catch(_) {}
+        if (email) notificarParticipante(nombre, email, valorNuevo, datos);
       }
 
-      // Si cambió PERFIL → refresh Dashboard
+      // Si cambió PERFIL → re-colorear fila + Dashboard
       if (columna === C.PERFIL) {
+        colorearFila(sheet, fila, valorNuevo);
         actualizarDashboard();
       }
     }
@@ -1261,21 +1263,37 @@ function abrirFichaInteractiva() {
 
 // Funciones de datos llamadas desde el sidebar via google.script.run
 function obtenerParticipantes() {
-  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
-  if (!hoja || hoja.getLastRow() < 2) return [];
-  return hoja.getRange(2, 1, hoja.getLastRow()-1, CONFIG.COL.ESTADO).getValues()
-    .filter(r => r[0])
-    .map(r => ({
-      id:       String(r[CONFIG.COL.ID-1]),
-      nombre:   r[CONFIG.COL.NOMBRE-1] || '',
-      perfil:   r[CONFIG.COL.PERFIL-1] || '',
-      prioridad:r[CONFIG.COL.PRIORIDAD-1] || '',
-      estado:   r[CONFIG.COL.ESTADO-1] || ''
-    }))
-    .sort((a,b) => a.nombre.localeCompare(b.nombre));
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    if (!hoja) return [];
+    const lastRow = hoja.getLastRow();
+    if (lastRow < 2) return [];
+    const numRows = lastRow - 1;
+    const C = CONFIG.COL;
+    // Leer cada columna por separado para mayor robustez
+    const ids      = hoja.getRange(2, C.ID,       numRows, 1).getValues();
+    const nombres  = hoja.getRange(2, C.NOMBRE,   numRows, 1).getValues();
+    const perfiles = hoja.getRange(2, C.PERFIL,   numRows, 1).getValues();
+    const estados  = hoja.getRange(2, C.ESTADO,   numRows, 1).getValues();
+    const result = [];
+    for (let i = 0; i < numRows; i++) {
+      if (!ids[i][0]) continue;
+      result.push({
+        id:      String(ids[i][0]),
+        nombre:  String(nombres[i][0] || 'Participante ' + ids[i][0]),
+        perfil:  String(perfiles[i][0] || ''),
+        estado:  String(estados[i][0] || '')
+      });
+    }
+    return result.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  } catch(e) {
+    // Devuelve el error como ítem para que el sidebar lo muestre
+    return [{ id: '__ERROR__', nombre: '❌ Error: ' + e.toString(), perfil: '', estado: '' }];
+  }
 }
 
 function obtenerDatosParticipante(id) {
+  try {
   const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
   if (!hoja || hoja.getLastRow() < 2) return null;
   const rows = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues();
@@ -1302,6 +1320,7 @@ function obtenerDatosParticipante(id) {
     estado:     r[C.ESTADO-1]     || '',
     docUrl:     r[C.DOC_URL-1]    || ''
   };
+  } catch(e) { return null; }
 }
 
 function cambiarEstadoParticipante(id, nuevoEstado) {
@@ -1326,8 +1345,8 @@ function fichaHtml() {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:Arial,sans-serif;font-size:13px;background:#f8f9fa;color:#333;overflow-y:auto}
-.top{background:#1a237e;padding:10px 12px;position:sticky;top:0;z-index:9}
-.top select{width:100%;padding:8px 10px;border:none;border-radius:6px;font-size:12px;color:#333;background:#fff}
+.top{background:#1a237e;padding:10px 12px;position:sticky;top:0;z-index:9;display:flex;align-items:center;gap:6px}
+.top select{flex:1;padding:8px 10px;border:none;border-radius:6px;font-size:12px;color:#333;background:#fff}
 .empty{text-align:center;padding:50px 20px;color:#aaa;font-size:13px;line-height:2}
 .load{text-align:center;padding:50px;color:#1a237e;font-size:13px}
 .hdr{padding:14px;display:flex;gap:10px;align-items:center}
@@ -1355,10 +1374,12 @@ body{font-family:Arial,sans-serif;font-size:13px;background:#f8f9fa;color:#333;o
 .dim-fill{height:7px;border-radius:3px}
 </style></head><body>
 <div class="top">
-  <select id="sel" onchange="cargar(this.value)">
+  <select id="sel" onchange="cargar(this.value)" style="flex:1">
     <option value="">👤 — Selecciona participante —</option>
   </select>
+  <button onclick="cargarLista()" style="background:#3949ab;border:none;color:#fff;border-radius:5px;padding:7px 10px;cursor:pointer;font-size:14px;margin-left:6px" title="Recargar lista">↻</button>
 </div>
+<div id="estado-carga" style="text-align:center;padding:6px;font-size:11px;color:#ffd54f;background:#1a237e;display:block;min-height:22px"></div>
 <div id="cont"><div class="empty">👤 Selecciona un participante<br>del desplegable de arriba</div></div>
 <div class="toast" id="toast">✅ Estado actualizado</div>
 <script>
@@ -1367,15 +1388,35 @@ var ESTADOS=['Orientación','Mentoría','Formación','Colocación','Completado',
 var PRIOCOLOR={'CRÍTICO':'#c62828','ALTO':'#e65100','MEDIO':'#f9a825','BAJO':'#388e3c'};
 var DIMLBL=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
 
-google.script.run.withSuccessHandler(function(lista){
-  var s=document.getElementById('sel');
-  lista.forEach(function(p){
-    var o=document.createElement('option');
-    o.value=p.id;
-    o.textContent=p.nombre+(p.perfil?' · '+p.perfil:'');
-    s.appendChild(o);
-  });
-}).obtenerParticipantes();
+function cargarLista(){
+  document.getElementById('estado-carga').textContent='⏳ Cargando...';
+  google.script.run
+    .withSuccessHandler(function(lista){
+      document.getElementById('estado-carga').textContent='';
+      var s=document.getElementById('sel');
+      // Limpiar opciones previas salvo la primera
+      while(s.options.length>1)s.remove(1);
+      if(!lista||lista.length===0){
+        document.getElementById('estado-carga').textContent='⚠️ Sin participantes. Sincroniza Kobo primero.';
+        return;
+      }
+      lista.forEach(function(p){
+        if(p.id==='__ERROR__'){
+          document.getElementById('estado-carga').textContent=p.nombre;
+          return;
+        }
+        var o=document.createElement('option');
+        o.value=p.id;
+        o.textContent=p.nombre+(p.perfil?' · '+p.perfil:'');
+        s.appendChild(o);
+      });
+    })
+    .withFailureHandler(function(err){
+      document.getElementById('estado-carga').textContent='❌ Error al cargar: '+err.message;
+    })
+    .obtenerParticipantes();
+}
+cargarLista();
 
 function cargar(id){
   if(!id){document.getElementById('cont').innerHTML='<div class="empty">👤 Selecciona un participante<br>del desplegable de arriba</div>';return;}
