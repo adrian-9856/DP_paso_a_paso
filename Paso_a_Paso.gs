@@ -114,6 +114,7 @@ function onOpen() {
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
       .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
+      .addItem('📁 Crear Expedientes Drive', 'crearExpedientesPendientes')
       .addItem('🔄 Sincronizar Kobo (opcional)', 'sincronizar')
       .addItem('🎨 Colorear Tabla', 'colorearTabla')
       .addItem('📋 Ver Ficha', 'verFicha')
@@ -245,6 +246,8 @@ function sincronizarAutomatico() {
 // Cols: Fecha|ID|Nombre|Teléfono|Género|Edad|Educación|DPI|Formación|Cohorte|Nota|Activo
 // ============================================================================
 
+// PASO 1 — Solo copia los datos al Maestro (rápido, sin Drive)
+// PASO 2 — Usa "📁 Crear Expedientes Drive" para crear las carpetas y docs
 function sincronizarDesdeSheet(silencioso) {
   try {
     const ss   = SpreadsheetApp.getActive();
@@ -261,8 +264,7 @@ function sincronizarDesdeSheet(silencioso) {
     } catch(e) {
       if (!silencioso) SpreadsheetApp.getUi().alert(
         '❌ No se puede abrir DP_Empleabilidad.\n\n' +
-        'Asegúrate de que este usuario tenga acceso al spreadsheet:\n' +
-        'ID: ' + DP_EMPLEABILIDAD.SPREADSHEET_ID
+        'Asegúrate que este usuario tiene acceso a ese Google Sheet.'
       );
       return;
     }
@@ -272,114 +274,163 @@ function sincronizarDesdeSheet(silencioso) {
       if (!silencioso) SpreadsheetApp.getUi().alert('❌ No existe la hoja "' + DP_EMPLEABILIDAD.HOJA + '" en DP_Empleabilidad.');
       return;
     }
-
-    const ultimaFila = hojaFuente.getLastRow();
-    if (ultimaFila < 2) {
-      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ La hoja "' + DP_EMPLEABILIDAD.HOJA + '" no tiene datos.');
+    if (hojaFuente.getLastRow() < 2) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ La hoja "' + DP_EMPLEABILIDAD.HOJA + '" no tiene datos todavía.');
       return;
     }
 
-    const datosSource = hojaFuente.getRange(2, 1, ultimaFila - 1, DP_EMPLEABILIDAD.NCOLS).getValues();
+    // Leer todos los datos de una sola llamada (eficiente)
+    const datosSource = hojaFuente.getRange(2, 1, hojaFuente.getLastRow() - 1, DP_EMPLEABILIDAD.NCOLS).getValues();
 
-    // IDs ya existentes en Maestro (para no duplicar)
+    // IDs ya existentes en Maestro
     const existentes = new Set();
     if (hoja.getLastRow() > 1) {
       hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
         .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0]).trim()); });
     }
 
-    const deriv = ss.getSheetByName('Derivaciones');
-    const folderBase = DriveApp.getFolderById(getFolderId());
     const C = DP_EMPLEABILIDAD.C;
     const M = CONFIG.COL;
-    let agregados = 0;
-    let omitidos  = 0;
+    const hoy = new Date();
+    const filasMaestro  = [];  // Acumular para escribir de una vez
+    const filasDerivaciones = [];
+    let omitidos = 0;
 
     datosSource.forEach(fila => {
       const id     = String(fila[C.ID]     || '').trim();
       const nombre = String(fila[C.NOMBRE] || '').trim();
+      if (!nombre) return; // fila vacía
 
-      // Saltar filas sin ID ni nombre
-      if (!id && !nombre) return;
-
-      // Generar ID si falta (usando nombre + fecha)
-      const idFinal = id || (nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'ddMMyyyy'));
+      // Generar ID si falta
+      const idFinal = id ||
+        (nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() +
+         Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'ddMMyyyy'));
 
       if (existentes.has(idFinal)) { omitidos++; return; }
+      existentes.add(idFinal);
 
       const formacion = String(fila[C.FORMACION] || '').trim();
       const cohorte   = String(fila[C.COHORTE]   || '').trim();
       const nota      = String(fila[C.NOTA]       || '').trim();
-      const activo    = fila[C.ACTIVO];
-      const estado    = (activo === true || String(activo).toLowerCase() === 'si' ||
-                         String(activo).toLowerCase() === 'sí' || activo === 1 ||
-                         String(activo).toLowerCase() === 'true' || activo === 'Activo')
-                        ? 'Orientación' : 'Inactivo';
+      const activoVal = String(fila[C.ACTIVO] || '').toLowerCase();
+      const activo    = (activoVal === 'true' || activoVal === 'si' ||
+                         activoVal === 'sí'   || activoVal === '1'  ||
+                         activoVal === 'activo');
+      const estado    = activo ? 'Orientación' : 'Inactivo';
+      const fechaIngreso = fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
 
-      // Crear carpeta y expediente en Drive
-      const expediente = crearExpediente(folderBase, idFinal, nombre, {
-        perfil_asignado: '',
-        prioridad_caso: '',
-        dimension_1_capital_educativo: 0,
-        dimension_2_capital_laboral: 0,
-        dimension_3_habilidades_digitales: 0,
-        dimension_4_claridad_vocacional: 0,
-        dimension_5_barreras_estructurales: 0,
-        dimension_6_red_apoyo: 0
-      });
+      // Fila Maestro completa (26 cols) — sin Drive todavía
+      const fMaestro = new Array(26).fill('');
+      fMaestro[M.ID        - 1] = idFinal;
+      fMaestro[M.FECHA     - 1] = fechaIngreso;
+      fMaestro[M.NOMBRE    - 1] = nombre;
+      fMaestro[M.DPI       - 1] = String(fila[C.DPI]       || '').trim();
+      fMaestro[M.EDAD      - 1] = fila[C.EDAD]  || '';
+      fMaestro[M.GENERO    - 1] = String(fila[C.GENERO]    || '').trim();
+      fMaestro[M.TELEFONO  - 1] = String(fila[C.TELEFONO]  || '').trim();
+      fMaestro[M.EDUCACION - 1] = String(fila[C.EDUCACION] || '').trim();
+      fMaestro[M.LABORAL   - 1] = formacion;
+      fMaestro[M.FORTALEZAS- 1] = cohorte ? 'Cohorte: ' + cohorte : '';
+      fMaestro[M.OBJETIVO  - 1] = nota;
+      fMaestro[M.ESTADO    - 1] = estado;
+      // CARPETA_ID, DOC_ID, DOC_URL quedan vacíos — se llenan después con "📁 Crear Expedientes"
+      filasMaestro.push(fMaestro);
 
-      // Construir fila Maestro (26 columnas)
-      const filaMaestro = new Array(26).fill('');
-      filaMaestro[M.ID        - 1] = idFinal;
-      filaMaestro[M.FECHA     - 1] = fila[C.FECHA] instanceof Date ? fila[C.FECHA] : new Date();
-      filaMaestro[M.NOMBRE    - 1] = nombre;
-      filaMaestro[M.DPI       - 1] = String(fila[C.DPI]       || '').trim();
-      filaMaestro[M.EDAD      - 1] = fila[C.EDAD]  || '';
-      filaMaestro[M.GENERO    - 1] = String(fila[C.GENERO]    || '').trim();
-      filaMaestro[M.TELEFONO  - 1] = String(fila[C.TELEFONO]  || '').trim();
-      filaMaestro[M.EDUCACION - 1] = String(fila[C.EDUCACION] || '').trim();
-      filaMaestro[M.LABORAL   - 1] = formacion;                           // Formación → Situación Laboral
-      filaMaestro[M.FORTALEZAS- 1] = cohorte ? 'Cohorte: ' + cohorte : ''; // Cohorte → Fortalezas
-      filaMaestro[M.OBJETIVO  - 1] = nota;                                // Nota → Objetivo
-      filaMaestro[M.ESTADO    - 1] = estado;
-      filaMaestro[M.CARPETA_ID- 1] = expediente.carpetaId;
-      filaMaestro[M.DOC_ID    - 1] = expediente.docId;
-      filaMaestro[M.DOC_URL   - 1] = expediente.docUrl;
-
-      hoja.appendRow(filaMaestro);
-      colorearFila(hoja, hoja.getLastRow(), '');
-      existentes.add(idFinal);
-      agregados++;
-
-      // Auto-crear derivación si tiene formación asignada
-      if (deriv && formacion) {
-        const colDeriv = cohorte ? 'Cohorte ' + cohorte : '';
-        deriv.appendRow([
-          new Date(), idFinal, nombre,
-          '💡 SUGERIDA', 'Formación Técnica — ' + formacion,
-          'Participante importado de DP_Empleabilidad con formación: ' + formacion + (colDeriv ? ' | ' + colDeriv : ''),
+      // Derivación automática si tiene formación
+      if (formacion) {
+        filasDerivaciones.push([
+          hoy, idFinal, nombre,
+          '💡 SUGERIDA',
+          'Formación Técnica — ' + formacion,
+          'Importado de DP_Empleabilidad. Formación: ' + formacion + (cohorte ? ' | Cohorte: ' + cohorte : ''),
           'Pendiente', '', '', nota
         ]);
-        const uf = deriv.getLastRow();
-        deriv.getRange(uf, 1, 1, 10).setBackground('#e8f5e9');
       }
     });
 
+    // Escribir todos los datos de una sola llamada (sin loops de API)
+    if (filasMaestro.length > 0) {
+      const primeraNueva = hoja.getLastRow() + 1;
+      hoja.getRange(primeraNueva, 1, filasMaestro.length, 26).setValues(filasMaestro);
+      SpreadsheetApp.flush();
+    }
+
+    // Escribir derivaciones de una sola llamada
+    if (filasDerivaciones.length > 0) {
+      const deriv = ss.getSheetByName('Derivaciones');
+      if (deriv) {
+        const primeraDeriv = deriv.getLastRow() + 1;
+        deriv.getRange(primeraDeriv, 1, filasDerivaciones.length, 10).setValues(filasDerivaciones);
+        deriv.getRange(primeraDeriv, 1, filasDerivaciones.length, 10).setBackground('#e8f5e9');
+        SpreadsheetApp.flush();
+      }
+    }
+
     actualizarDashboard();
-    actualizarAnalytics(ss);
 
     if (!silencioso) {
       SpreadsheetApp.getUi().alert(
-        '✅ Importación desde DP_Empleabilidad\n\n' +
-        '👤 ' + agregados + ' participante(s) importado(s)\n' +
-        '⏭️ ' + omitidos  + ' ya existían (omitidos)\n' +
-        '📊 ' + datosSource.filter(r => r[C.NOMBRE] || r[C.ID]).length + ' registros en fuente\n\n' +
-        (agregados > 0 ? '📁 Se crearon carpetas y expedientes en Drive.\n🔔 Revisa la hoja Derivaciones.' : '')
+        '✅ Datos importados de DP_Empleabilidad\n\n' +
+        '👤 ' + filasMaestro.length + ' participante(s) nuevo(s)\n' +
+        '➡️ ' + filasDerivaciones.length + ' derivación(es) creada(s)\n' +
+        '⏭️ ' + omitidos + ' ya existían (omitidos)\n\n' +
+        (filasMaestro.length > 0
+          ? '📁 SIGUIENTE PASO:\nUsa "📁 Crear Expedientes Drive" para\ngenerar carpetas y docs en Drive.'
+          : 'No hay participantes nuevos que importar.')
       );
     }
   } catch(e) {
     logError('sincronizarDesdeSheet', e);
-    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error al importar: ' + e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error al importar: ' + e.message);
+  }
+}
+
+// Crea carpetas y docs en Drive para participantes que aún no los tienen.
+// Se ejecuta DESPUÉS de importar datos. Procesa de a 10 para no agotar tiempo.
+function crearExpedientesPendientes() {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay participantes en el Maestro.');
+      return;
+    }
+
+    const M = CONFIG.COL;
+    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues();
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    let creados = 0;
+    let limite  = 10; // máximo por ejecución para no agotar los 6 minutos
+
+    datos.forEach((fila, i) => {
+      if (limite <= 0) return;
+      if (fila[M.CARPETA_ID - 1]) return; // ya tiene expediente
+      const id     = String(fila[M.ID     - 1] || '').trim();
+      const nombre = String(fila[M.NOMBRE - 1] || '').trim();
+      if (!id || !nombre) return;
+
+      const exp = crearExpediente(folderBase, id, nombre, {});
+      if (exp.carpetaId) {
+        const numFila = i + 2;
+        hoja.getRange(numFila, M.CARPETA_ID, 1, 3)
+            .setValues([[exp.carpetaId, exp.docId, exp.docUrl]]);
+        creados++;
+        limite--;
+      }
+    });
+
+    SpreadsheetApp.flush();
+    const pendientes = datos.filter(f => !f[M.CARPETA_ID - 1] && f[M.NOMBRE - 1]).length - creados;
+
+    SpreadsheetApp.getUi().alert(
+      '✅ Expedientes creados: ' + creados + '\n\n' +
+      (pendientes > 0
+        ? '⏳ Aún faltan ' + pendientes + ' expedientes.\nVuelve a ejecutar "📁 Crear Expedientes Drive" hasta completar.'
+        : '🎉 ¡Todos los expedientes están listos!')
+    );
+  } catch(e) {
+    logError('crearExpedientesPendientes', e);
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
   }
 }
 
