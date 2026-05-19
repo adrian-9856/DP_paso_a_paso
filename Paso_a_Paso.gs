@@ -1111,8 +1111,8 @@ function agregarParticipanteManual() {
     'google.script.run.withSuccessHandler(function(){alert("✅ Participante agregado");google.script.host.close();}).guardarParticipanteManual(obj);' +
     '}' +
     '</script></body></html>'
-  ).setWidth(380).setHeight(650);
-  ui.showModelessDialog(html, '➕ Nuevo Participante');
+  ).setTitle('➕ Nuevo Participante').setWidth(380);
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
 function guardarParticipanteManual(datos) {
@@ -1161,12 +1161,16 @@ function editarParticipante() {
   try {
     const ss    = SpreadsheetApp.getActive();
     const rango = ss.getActiveRange();
+    if (rango.getSheet().getName() !== CONFIG.HOJA) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila en la hoja Maestro.');
+      return;
+    }
     if (rango.getRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de participante.');
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de participante (no el encabezado).');
       return;
     }
     const datos = rango.getSheet().getRange(rango.getRow(), 1, 1, 26).getValues()[0];
-    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía.'); return; }
+    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía, no hay participante.'); return; }
 
     const C = CONFIG.COL;
     const html = HtmlService.createHtmlOutput(
@@ -1204,8 +1208,8 @@ function editarParticipante() {
       'google.script.run.withSuccessHandler(function(){alert("✅ Cambios guardados");google.script.host.close();}).guardarEdicionParticipante('+rango.getRow()+',obj);' +
       '}' +
       '</script></body></html>'
-    ).setWidth(380).setHeight(650);
-    SpreadsheetApp.getUi().showModelessDialog(html, '✏️ Editar Participante');
+    ).setTitle('✏️ Editar Participante').setWidth(380);
+    SpreadsheetApp.getUi().showSidebar(html);
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
@@ -1303,8 +1307,8 @@ function abrirFormDerivacion() {
       'google.script.run.withSuccessHandler(function(){alert("✅ Derivación registrada");google.script.host.close();}).guardarDerivacion("'+escaparHtml(id)+'","'+escaparHtml(nom)+'",t,o,m,n);' +
       '}' +
       '</script></body></html>'
-    ).setWidth(380).setHeight(540);
-    SpreadsheetApp.getUi().showModelessDialog(html, '➡️ Derivar Participante');
+    ).setTitle('➡️ Derivar Participante').setWidth(380);
+    SpreadsheetApp.getUi().showSidebar(html);
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
