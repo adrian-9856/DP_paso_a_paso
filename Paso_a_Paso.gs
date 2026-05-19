@@ -531,6 +531,11 @@ function onEdit(e) {
 }
 
 function manejarEdicion(e) {
+  // setValue() dentro de este trigger vuelve a disparar manejarEdicion.
+  // CacheService actúa como bandera de re-entrada para cortocircuitar ese bucle.
+  const cache = CacheService.getScriptCache();
+  if (cache.get('revertiendo_estado')) return;
+
   try {
     const sheet = e.source.getActiveSheet();
     if (sheet.getName() !== CONFIG.HOJA) return;
@@ -545,10 +550,12 @@ function manejarEdicion(e) {
 
     // Validación de flujo de estados
     if (columna === CONFIG.COL.ESTADO) {
-      const error = validarTransicionEstado(valorAnterior, valorNuevo);
-      if (error) {
+      const errorFlujo = validarTransicionEstado(valorAnterior, valorNuevo);
+      if (errorFlujo) {
+        cache.put('revertiendo_estado', '1', 10);
         sheet.getRange(fila, columna).setValue(valorAnterior);
-        SpreadsheetApp.getUi().alert(error);
+        cache.remove('revertiendo_estado');
+        SpreadsheetApp.getUi().alert(errorFlujo);
         return;
       }
     }
@@ -585,6 +592,7 @@ function manejarEdicion(e) {
       }
     }
   } catch(err) {
+    cache.remove('revertiendo_estado');
     logError('manejarEdicion', err);
   }
 }
