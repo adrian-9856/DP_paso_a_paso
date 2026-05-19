@@ -1,5 +1,5 @@
 // ============================================================================
-// SISTEMA PASO A PASO - FITO v8.4
+// SISTEMA PASO A PASO - FITO v8.7
 // Con Dashboard + Email + Alertas + Derivaciones + Historial
 // + Seguridad: credenciales en PropertiesService
 // + Validaciones: flujo de estados + campos requeridos
@@ -116,7 +116,7 @@ function validarTransicionEstado(estadoAnterior, estadoNuevo) {
 }
 
 // Marca de versión — sirve para confirmar que el código nuevo SÍ está cargado
-const VERSION_SISTEMA = 'v8.6-2026-05-19';
+const VERSION_SISTEMA = 'v8.7-2026-05-19';
 
 // ============================================================================
 // DIAGNÓSTICO — Ejecuta esto PRIMERO si algo falla.
@@ -131,7 +131,7 @@ function diagnostico() {
 
   // 1. Versión del código cargado
   reporte += '📌 VERSIÓN CARGADA: ' + (typeof VERSION_SISTEMA !== 'undefined' ? VERSION_SISTEMA : '❌ DESCONOCIDA (código viejo)') + '\n';
-  reporte += '   (Debe decir v8.6 o más reciente)\n\n';
+  reporte += '   (Debe decir v8.7 o más reciente)\n\n';
 
   // 2. Triggers instalados
   try {
@@ -276,7 +276,7 @@ function instalar() {
     configurarTriggers();
 
     SpreadsheetApp.getUi().alert(
-      '✅ Sistema v8.3 instalado\n\n' +
+      '✅ Sistema v8.7 instalado\n\n' +
       '⚙️ SIGUIENTE PASO OBLIGATORIO:\n' +
       'Abre ⚙️ Configuración e ingresa:\n' +
       '• Tu API Key de KoboToolbox\n' +
@@ -2022,5 +2022,5 @@ function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
 }
 
 // ============================================================================
-// FIN - v8.3
+// FIN - v8.7
 // ============================================================================
