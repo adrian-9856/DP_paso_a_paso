@@ -1,12 +1,14 @@
 // ============================================================================
-// SISTEMA PASO A PASO - FITO v7.0
+// SISTEMA PASO A PASO - FITO v8.3
 // Con Dashboard + Email + Alertas + Derivaciones + Historial
+// + Seguridad: credenciales en PropertiesService
+// + Validaciones: flujo de estados + campos requeridos
 // ============================================================================
 
 const CONFIG = {
   SPREADSHEET_ID:          SpreadsheetApp.getActive().getId(),
   FOLDER_PARTICIPANTES_ID: "1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU",
-  KOBO_API_KEY:            "64cc018b88067397addd36b09288be8b6539cf39",
+  KOBO_API_KEY:            "",  // No guardar aquí — usar ⚙️ Configuración
   KOBO_ASSET_ID:           "abHRWdRnPhKwzPQBajc7RZ",
   KOBO_URL:                "https://kf.kobotoolbox.org/api/v2",
   HOJA:                    "Maestro",
@@ -24,6 +26,70 @@ const CONFIG = {
     DIM4: 20, DIM5: 21, DIM6: 22, ESTADO: 23, CARPETA_ID: 24, DOC_ID: 25, DOC_URL: 26
   }
 };
+
+// ============================================================================
+// HELPERS — Seguridad, logging y sanitización
+// ============================================================================
+
+function getCredencial(clave) {
+  const val = PropertiesService.getUserProperties().getProperty(clave);
+  if (!val) throw new Error('Credencial "' + clave + '" no configurada. Abre ⚙️ Configuración para ingresarla.');
+  return val;
+}
+
+function getFolderId() {
+  return getFolderId();
+}
+
+function getAdminEmail() {
+  return getAdminEmail();
+}
+
+function logError(nombreFuncion, error) {
+  try {
+    const log = SpreadsheetApp.getActive().getSheetByName('Log');
+    if (log) {
+      log.appendRow([new Date(), '⚠️ ERROR', nombreFuncion, '', '', error.toString(), Session.getEffectiveUser().getEmail()]);
+    }
+  } catch(e) {}
+}
+
+function escaparHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Reglas de transición de estados válidas
+const FLUJO_ESTADOS = {
+  'Orientación': ['Mentoría', 'Derivación', 'Inactivo'],
+  'Mentoría':    ['Formación', 'Cierre', 'Derivación', 'Inactivo'],
+  'Formación':   ['Cierre', 'Derivación', 'Mentoría', 'Inactivo'],
+  'Derivación':  ['Mentoría', 'Formación', 'Cierre', 'Inactivo'],
+  'Inactivo':    ['Orientación', 'Mentoría'],
+  'Cierre':      [],
+  'Completado':  []
+};
+
+// Campos que se vuelven obligatorios según el estado destino
+const CAMPOS_REQUERIDOS_POR_ESTADO = {
+  'Mentoría':   [{ col: 'NOMBRE', label: 'Nombre Completo' }],
+  'Cierre':     [{ col: 'NOMBRE', label: 'Nombre Completo' }],
+  'Completado': [{ col: 'NOMBRE', label: 'Nombre Completo' }]
+};
+
+function validarTransicionEstado(estadoAnterior, estadoNuevo) {
+  if (!estadoAnterior || estadoAnterior === estadoNuevo) return null;
+  const permitidos = FLUJO_ESTADOS[estadoAnterior];
+  if (!permitidos) return null;
+  if (!permitidos.includes(estadoNuevo)) {
+    return '⚠️ Transición no permitida: ' + estadoAnterior + ' → ' + estadoNuevo + '\n\nDesde "' + estadoAnterior + '" solo puedes cambiar a:\n• ' + (permitidos.length ? permitidos.join('\n• ') : '(estado final)');
+  }
+  return null;
+}
 
 // ============================================================================
 // MENÚ
@@ -119,14 +185,18 @@ function instalar() {
     configurarTriggers();
 
     SpreadsheetApp.getUi().alert(
-      '✅ Sistema v7.0 instalado\n\n' +
-      '✨ Nuevas características:\n' +
-      '📧 Email semanal los lunes\n' +
-      '🚨 Alertas de casos dormidos\n' +
+      '✅ Sistema v8.3 instalado\n\n' +
+      '⚙️ SIGUIENTE PASO OBLIGATORIO:\n' +
+      'Abre ⚙️ Configuración e ingresa:\n' +
+      '• Tu API Key de KoboToolbox\n' +
+      '• El ID de tu carpeta de Drive\n\n' +
+      '✨ Características activas:\n' +
+      '🔐 Credenciales seguras (no en código)\n' +
+      '✅ Validación de flujo de estados\n' +
+      '📧 Email semanal + alertas\n' +
       '➡️ Registro de derivaciones\n' +
-      '📜 Historial de cambios\n' +
-      '📊 Dashboard automático\n\n' +
-      'Próximo: 🔄 Sincronizar Kobo'
+      '📊 Dashboard + Analytics\n\n' +
+      'Próximo: ⚙️ Configuración → 🔄 Sincronizar Kobo'
     );
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e);
@@ -170,14 +240,14 @@ function sincronizar(silencioso) {
       return;
     }
 
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
+    const apiKey = getCredencial('KOBO_API_KEY');
     const resp = UrlFetchApp.fetch(
       CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json',
       { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
     );
 
     if (resp.getResponseCode() !== 200) {
-      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode());
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode() + '\n\nSi el error es 401, verifica tu API Key en ⚙️ Configuración.');
       return;
     }
 
@@ -193,8 +263,7 @@ function sincronizar(silencioso) {
         .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
     }
 
-    const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-    const folderBase = DriveApp.getFolderById(folderId);
+    const folderBase = DriveApp.getFolderById(getFolderId());
     let agregados = 0;
 
     registros.forEach(r => {
@@ -244,6 +313,7 @@ function sincronizar(silencioso) {
       SpreadsheetApp.getUi().alert('✅ Sincronizado\n👤 ' + agregados + ' nuevos\n📊 ' + registros.length + ' en Kobo');
     }
   } catch(e) {
+    logError('sincronizar', e);
     if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e);
   }
 }
@@ -369,7 +439,7 @@ function verificarCasosDormidos() {
     });
 
     if (casosDormidos.length > 0) {
-      const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+      const adminEmail = getAdminEmail();
       const asunto = '🚨 Alerta: ' + casosDormidos.length + ' casos sin seguimiento';
       let body = 'Los siguientes participantes llevan más de 30 días sin cambio de estado:\n\n';
       casosDormidos.forEach(c => {
@@ -404,7 +474,7 @@ function enviarReporteSemanal() {
       return diasSinContacto > 30;
     });
 
-    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+    const adminEmail = getAdminEmail();
     const asunto = '📊 Reporte semanal - Paso a Paso';
     let body = '═════════════════════════════════════\n';
     body += '📊 REPORTE SEMANAL - PASO A PASO\n';
@@ -473,6 +543,16 @@ function manejarEdicion(e) {
 
     if (fila < 2 || !valorNuevo || valorNuevo === valorAnterior) return;
 
+    // Validación de flujo de estados
+    if (columna === CONFIG.COL.ESTADO) {
+      const error = validarTransicionEstado(valorAnterior, valorNuevo);
+      if (error) {
+        sheet.getRange(fila, columna).setValue(valorAnterior);
+        SpreadsheetApp.getUi().alert(error);
+        return;
+      }
+    }
+
     // Registrar en log
     const logSheet = e.source.getSheetByName('Log');
     if (logSheet) {
@@ -497,15 +577,15 @@ function manejarEdicion(e) {
 
       // Si cambió ESTADO → Calendar + Email al participante
       if (columna === C.ESTADO) {
-        const nombre   = datos[C.NOMBRE - 1] || '';
-        const email    = datos[C.EMAIL - 1] || '';
-        const docUrl   = datos[C.DOC_URL - 1] || '';
+        const nombre = datos[C.NOMBRE - 1] || '';
+        const email  = datos[C.EMAIL - 1]  || '';
+        const docUrl = datos[C.DOC_URL - 1] || '';
         crearEventoCalendario(nombre, valorNuevo, docUrl);
         if (email) notificarParticipante(nombre, email, valorNuevo, datos);
       }
     }
-  } catch(e) {
-    // Fallo silencioso
+  } catch(err) {
+    logError('manejarEdicion', err);
   }
 }
 
@@ -602,6 +682,8 @@ function abrirFormDerivacion() {
       return;
     }
 
+    const nombreSeguro = escaparHtml(participanteNombre);
+    const idSeguro = escaparHtml(participanteID);
     const html = HtmlService.createHtmlOutput(
       '<style>body{font-family:Arial;padding:16px;background:#f5f5f5;font-size:13px}' +
       'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
@@ -610,15 +692,26 @@ function abrirFormDerivacion() {
       'button{margin-top:14px;background:#1f73e6;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold}' +
       '.info{background:#e3f2fd;color:#1565c0;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px}' +
       '</style>' +
-      '<div class="info">📋 Derivación de: <strong>' + participanteNombre + '</strong></div>' +
+      '<div class="info">📋 Derivación de: <strong>' + nombreSeguro + '</strong></div>' +
+      '<label>Tipo de derivación:</label>' +
+      '<select id="tipo"><option value="">Selecciona...</option><option>💡 SUGERIDA</option><option>⚠️ ALERTA</option><option>🚨 URGENTE</option></select>' +
       '<label>Organización destino:</label>' +
-      '<select id="org"><option>Selecciona...</option><option>Otro programa Creamos</option><option>Entidad pública</option><option>ONG externa</option><option>Sector privado</option><option>Otra</option></select>' +
+      '<select id="org"><option value="">Selecciona...</option><option>Otro programa Creamos</option><option>Creamos Voces (Apoyo Emocional)</option><option>Mentoría Vocacional</option><option>Intermediación Laboral</option><option>Formación Técnica</option><option>Entidad pública</option><option>ONG externa</option><option>Otra</option></select>' +
       '<label>Motivo de la derivación:</label>' +
-      '<textarea id="motivo" placeholder="Razón por la que se derivó..."></textarea>' +
-      '<label>Resultado esperado:</label>' +
-      '<textarea id="resultado" placeholder="Qué se espera lograr..."></textarea>' +
+      '<textarea id="motivo" placeholder="Razón por la que se derivó..." maxlength="500"></textarea>' +
+      '<label>Notas adicionales:</label>' +
+      '<textarea id="notas" placeholder="Información adicional..." maxlength="500"></textarea>' +
       '<button onclick="guardarDer()">➡️ Registrar Derivación</button>' +
-      '<script>function guardarDer(){var o=document.getElementById(\'org\').value,m=document.getElementById(\'motivo\').value,r=document.getElementById(\'resultado\').value;if(o==="Selecciona..."||!m||!r){alert("Completa todos los campos");return;}google.script.run.guardarDerivacion("' + participanteID + '","' + participanteNombre + '",o,m,r);alert("✅ Derivación registrada");google.script.host.close();}</script>'
+      '<script>' +
+      'function guardarDer(){' +
+      'var t=document.getElementById("tipo").value,' +
+      'o=document.getElementById("org").value,' +
+      'm=document.getElementById("motivo").value.trim(),' +
+      'n=document.getElementById("notas").value.trim();' +
+      'if(!t||!o||!m){alert("Completa Tipo, Organización y Motivo");return;}' +
+      'google.script.run.withSuccessHandler(function(){alert("✅ Derivación registrada");google.script.host.close();})' +
+      '.guardarDerivacion("' + idSeguro + '","' + nombreSeguro + '",t,o,m,n);' +
+      '}</script>'
     );
 
     SpreadsheetApp.getUi().showSidebar(html);
@@ -627,24 +720,30 @@ function abrirFormDerivacion() {
   }
 }
 
-function guardarDerivacion(id, nombre, organizacion, motivo, resultado) {
+// Columnas Derivaciones: Fecha | ID | Nombre | Tipo | Destino | Motivo | Estado | Responsable | Fecha_Seguimiento | Notas
+function guardarDerivacion(id, nombre, tipo, destino, motivo, notas) {
   try {
     const ss = SpreadsheetApp.getActive();
     const sheet = ss.getSheetByName('Derivaciones');
     if (!sheet) return;
 
-    sheet.appendRow([
+    const fila = sheet.appendRow([
       new Date(),
       id,
       nombre,
-      organizacion,
+      tipo || 'Manual',
+      destino,
       motivo,
-      resultado,
+      'Pendiente',
+      Session.getEffectiveUser().getEmail(),
       '',
-      ''
+      notas || ''
     ]);
+    const numFila = sheet.getLastRow();
+    const color = tipo && tipo.includes('URGENTE') ? '#ffcdd2' : tipo && tipo.includes('ALERTA') ? '#fff9c4' : '#e8f5e9';
+    sheet.getRange(numFila, 1, 1, 10).setBackground(color);
   } catch(e) {
-    // Error silencioso
+    logError('guardarDerivacion', e);
   }
 }
 
@@ -905,7 +1004,7 @@ function verEstadisticas() {
 
 function probarKobo() {
   try {
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
+    const apiKey = getCredencial('KOBO_API_KEY');
     const resp = UrlFetchApp.fetch(
       CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/',
       { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
@@ -914,7 +1013,7 @@ function probarKobo() {
       const n = JSON.parse(resp.getContentText()).deployment__submission_count || 0;
       SpreadsheetApp.getUi().alert('✅ Conexión OK\n\n📊 ' + n + ' respuestas en Kobo');
     } else {
-      SpreadsheetApp.getUi().alert('❌ Error ' + resp.getResponseCode());
+      SpreadsheetApp.getUi().alert('❌ Error ' + resp.getResponseCode() + '\n\nVerifica tu API Key en ⚙️ Configuración.');
     }
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e);
@@ -927,7 +1026,7 @@ function probarKobo() {
 
 function diagnosticarCamposKobo() {
   try {
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
+    const apiKey = getCredencial('KOBO_API_KEY');
     const resp = UrlFetchApp.fetch(
       CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
       { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
@@ -1020,35 +1119,54 @@ function diagnosticarCamposKobo() {
 // ============================================================================
 
 function abrirConfiguracion() {
-  const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
-  const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-  const email = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+  const props = PropertiesService.getUserProperties();
+  const tieneApiKey = !!props.getProperty('KOBO_API_KEY');
+  const folderId = escaparHtml(props.getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID);
+  const email    = escaparHtml(props.getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL);
+  const apiKeyPlaceholder = tieneApiKey ? '(API Key guardada — deja en blanco para no cambiarla)' : 'Pega tu API Key de KoboToolbox aquí';
+  const estadoApiKey = tieneApiKey ? '✅ API Key configurada' : '⚠️ API Key NO configurada — necesaria para sincronizar';
+  const colorEstado = tieneApiKey ? '#e8f5e9' : '#ffcdd2';
 
   const html = HtmlService.createHtmlOutput(
     '<style>body{font-family:Arial;padding:16px;background:#f5f5f5;font-size:13px}' +
     'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
     'input,textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:11px}' +
-    'textarea{height:80px;resize:vertical}' +
+    'textarea{height:70px;resize:vertical}' +
     'button{margin-top:14px;background:#1f73e6;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold}' +
-    '.info{background:#e8f5e9;color:#2e7d32;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px}' +
+    '.info{padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px}' +
+    '.hint{font-size:10px;color:#888;margin-top:2px}' +
     '</style>' +
-    '<div class="info">⚙️ Configuración del sistema</div>' +
+    '<div class="info" style="background:' + colorEstado + '">' + estadoApiKey + '</div>' +
     '<label>Email para alertas:</label>' +
-    '<input id="email" value="' + email + '">' +
-    '<label>ID Carpeta Drive:</label>' +
-    '<input id="cid" value="' + folderId + '">' +
-    '<label>API Key Kobo:</label>' +
-    '<textarea id="key">' + apiKey + '</textarea>' +
-    '<button onclick="var e=document.getElementById(\'email\').value.trim(),c=document.getElementById(\'cid\').value.trim(),k=document.getElementById(\'key\').value.trim();if(!e||!c||!k){alert(\'Completa todos\');return;}google.script.run.guardarConfig(e,c,k);alert(\'✅ Guardado\')">💾 Guardar</button>'
+    '<input id="email" value="' + email + '" type="email" maxlength="100">' +
+    '<label>ID Carpeta Drive (para expedientes):</label>' +
+    '<input id="cid" value="' + folderId + '" maxlength="60">' +
+    '<div class="hint">Obtén el ID de la URL: drive.google.com/drive/folders/<b>ESTE_ES_EL_ID</b></div>' +
+    '<label>API Key KoboToolbox:</label>' +
+    '<textarea id="key" placeholder="' + apiKeyPlaceholder + '" maxlength="60"></textarea>' +
+    '<div class="hint">Kobo → Tu cuenta → Seguridad → Clave API</div>' +
+    '<button onclick="guardar()">💾 Guardar Configuración</button>' +
+    '<script>' +
+    'function guardar(){' +
+    'var e=document.getElementById("email").value.trim(),' +
+    'c=document.getElementById("cid").value.trim(),' +
+    'k=document.getElementById("key").value.trim();' +
+    'if(!e||!c){alert("Email y Carpeta son obligatorios");return;}' +
+    'google.script.run.withSuccessHandler(function(){alert("✅ Configuración guardada");google.script.host.close();})' +
+    '.guardarConfig(e,c,k);' +
+    '}' +
+    '</script>'
   );
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
 function guardarConfig(email, carpeta, apiKey) {
-  PropertiesService.getUserProperties()
-    .setProperty('ADMIN_EMAIL', email)
-    .setProperty('FOLDER_ID', carpeta)
-    .setProperty('KOBO_API_KEY', apiKey);
+  const props = PropertiesService.getUserProperties();
+  props.setProperty('ADMIN_EMAIL', email);
+  props.setProperty('FOLDER_ID', carpeta);
+  if (apiKey && apiKey.trim()) {
+    props.setProperty('KOBO_API_KEY', apiKey.trim());
+  }
 }
 
 // ============================================================================
@@ -1165,7 +1283,7 @@ function registrarDerivacionesAutomaticas(ss, id, nombre, fila, datosKobo) {
 
 function enviarAlertaBarrerasCriticas(id, nombre, perfil, dimBarreras) {
   try {
-    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
+    const adminEmail = getAdminEmail();
     const asunto = '🚨 ALERTA URGENTE: Barreras críticas — ' + nombre;
     const body =
       '🚨 CASO URGENTE DETECTADO EN SINCRONIZACIÓN\n' +
@@ -1380,7 +1498,7 @@ function desinstalarYLimpiar() {
 
     // Eliminar carpetas de participantes en Drive
     try {
-      const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
+      const folderId = getFolderId();
       const folderBase = DriveApp.getFolderById(folderId);
       const subcarpetas = folderBase.getFolders();
       while (subcarpetas.hasNext()) {
@@ -1434,7 +1552,7 @@ function restaurarDesdeDrive() {
         .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
     }
 
-    const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
+    const folderId = getFolderId();
     const folderBase = DriveApp.getFolderById(folderId);
     const subcarpetas = folderBase.getFolders();
     let restaurados = 0;
@@ -1588,5 +1706,5 @@ function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
 }
 
 // ============================================================================
-// FIN - v8.0
+// FIN - v8.3
 // ============================================================================
