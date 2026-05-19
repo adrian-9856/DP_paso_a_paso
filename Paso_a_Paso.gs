@@ -128,6 +128,9 @@ function onOpen() {
       .addItem('🔍 Diagnóstico del Sistema', 'diagnostico')
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
+      .addItem('➕ Agregar Participante', 'agregarParticipanteManual')
+      .addItem('✏️ Editar Participante', 'editarParticipante')
+      .addSeparator()
       .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
       .addItem('📁 Crear Expedientes Drive', 'crearExpedientesPendientes')
       .addItem('🔄 Sincronizar Kobo', 'sincronizar')
@@ -136,7 +139,8 @@ function onOpen() {
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('📈 Analytics', 'abrirAnalytics')
       .addItem('📋 Ver Ficha del Participante', 'verFicha')
-      .addItem('➡️ Ver Derivaciones', 'verDerivaciones')
+      .addItem('➡️ Derivar Participante', 'abrirFormDerivacion')
+      .addItem('📊 Ver Derivaciones', 'verDerivaciones')
       .addSeparator()
       .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addItem('🧪 Probar Kobo', 'probarKobo')
@@ -1046,6 +1050,262 @@ function mostrarFicha(datos) {
   ).setTitle('Perfil — '+nombre).setWidth(360);
 
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// ============================================================================
+// AGREGAR PARTICIPANTE MANUALMENTE
+// ============================================================================
+
+function agregarParticipanteManual() {
+  const ui = SpreadsheetApp.getUi();
+  const html = HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+    '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+    'h3{color:#1a237e;margin:0 0 14px;font-size:14px}' +
+    'label{display:block;font-weight:bold;margin:10px 0 3px;color:#333}' +
+    'input,select,textarea{width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+    'textarea{height:60px;resize:vertical}' +
+    'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold;margin-top:10px}' +
+    'button:hover{background:#283593}' +
+    '.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}' +
+    '.full{grid-column:1/-1}' +
+    '</style></head><body>' +
+    '<h3>➕ Agregar Nuevo Participante</h3>' +
+    '<div class="row">' +
+    '<div><label>ID (opcional)</label><input id="id" placeholder="Auto-generado si está vacío"></div>' +
+    '<div><label>Nombre completo *</label><input id="nombre" placeholder="Nombre y apellido" required></div>' +
+    '<div><label>DPI</label><input id="dpi" placeholder="13 dígitos"></div>' +
+    '<div><label>Edad</label><input id="edad" type="number" min="15" max="120"></div>' +
+    '<div><label>Género</label><select id="genero"><option>—</option><option>Masculino</option><option>Femenino</option><option>Otro</option></select></div>' +
+    '<div><label>Teléfono</label><input id="tel" placeholder="+502 XXXX XXXX"></div>' +
+    '<div><label>Zona/Región</label><input id="zona" placeholder="Ej: Zona 3, Guatemala"></div>' +
+    '<div><label>Email</label><input id="email" type="email" placeholder="correo@ejemplo.com"></div>' +
+    '<div class="full"><label>Educación</label><input id="educacion" placeholder="Nivel educativo alcanzado"></div>' +
+    '<div class="full"><label>Situación laboral actual</label><input id="laboral" placeholder="Empleado, desempleado, etc."></div>' +
+    '<div class="full"><label>Fortalezas/Habilidades</label><textarea id="fortalezas" placeholder="¿Qué sabe hacer bien?"></textarea></div>' +
+    '<div class="full"><label>Objetivo laboral</label><textarea id="objetivo" placeholder="¿Qué tipo de empleo busca?"></textarea></div>' +
+    '<div><label>Estado inicial</label><select id="estado"><option>Orientación</option><option>Mentoría</option><option>Formación</option><option>Cierre</option><option>Inactivo</option></select></div>' +
+    '<div><label>Perfil asignado</label><select id="perfil"><option>—</option><option>Perfil A</option><option>Perfil B</option><option>Perfil C</option><option>Perfil D</option></select></div>' +
+    '</div>' +
+    '<button onclick="guardar()">✅ Guardar Participante</button>' +
+    '<script>' +
+    'function guardar(){' +
+    'var n=document.getElementById("nombre").value.trim();' +
+    'if(!n){alert("El nombre es obligatorio");return;}' +
+    'var obj={' +
+    'id:document.getElementById("id").value.trim(),' +
+    'nombre:n,' +
+    'dpi:document.getElementById("dpi").value.trim(),' +
+    'edad:document.getElementById("edad").value.trim(),' +
+    'genero:document.getElementById("genero").value,' +
+    'tel:document.getElementById("tel").value.trim(),' +
+    'zona:document.getElementById("zona").value.trim(),' +
+    'email:document.getElementById("email").value.trim(),' +
+    'educacion:document.getElementById("educacion").value.trim(),' +
+    'laboral:document.getElementById("laboral").value.trim(),' +
+    'fortalezas:document.getElementById("fortalezas").value.trim(),' +
+    'objetivo:document.getElementById("objetivo").value.trim(),' +
+    'estado:document.getElementById("estado").value,' +
+    'perfil:document.getElementById("perfil").value' +
+    '};' +
+    'google.script.run.withSuccessHandler(function(){alert("✅ Participante agregado");google.script.host.close();}).guardarParticipanteManual(obj);' +
+    '}' +
+    '</script></body></html>'
+  ).setWidth(380).setHeight(650);
+  ui.showModelessDialog(html, '➕ Nuevo Participante');
+}
+
+function guardarParticipanteManual(datos) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) return;
+
+    let id = datos.id;
+    if (!id) {
+      id = datos.nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() +
+           Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'ddMMyyyy');
+    }
+
+    const M   = CONFIG.COL;
+    const row = new Array(26).fill('');
+    row[M.ID-1]         = id;
+    row[M.FECHA-1]      = new Date();
+    row[M.NOMBRE-1]     = datos.nombre;
+    row[M.DPI-1]        = datos.dpi;
+    row[M.EDAD-1]       = datos.edad;
+    row[M.GENERO-1]     = datos.genero;
+    row[M.TELEFONO-1]   = datos.tel;
+    row[M.ZONA-1]       = datos.zona;
+    row[M.EMAIL-1]      = datos.email;
+    row[M.EDUCACION-1]  = datos.educacion;
+    row[M.LABORAL-1]    = datos.laboral;
+    row[M.FORTALEZAS-1] = datos.fortalezas;
+    row[M.OBJETIVO-1]   = datos.objetivo;
+    row[M.PERFIL-1]     = datos.perfil === '—' ? '' : datos.perfil;
+    row[M.ESTADO-1]     = datos.estado;
+
+    hoja.appendRow(row);
+    colorearFila(hoja, hoja.getLastRow(), datos.perfil);
+    SpreadsheetApp.flush();
+  } catch(e) {
+    logError('guardarParticipanteManual', e);
+  }
+}
+
+// ============================================================================
+// EDITAR PARTICIPANTE
+// ============================================================================
+
+function editarParticipante() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const rango = ss.getActiveRange();
+    if (rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de participante.');
+      return;
+    }
+    const datos = rango.getSheet().getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía.'); return; }
+
+    const C = CONFIG.COL;
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+      'h3{color:#1a237e;margin:0 0 14px;font-size:14px}' +
+      'label{display:block;font-weight:bold;margin:10px 0 3px;color:#333}' +
+      'input,select,textarea{width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+      'textarea{height:50px;resize:vertical}' +
+      'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:48%;font-weight:bold;margin-right:2%;margin-top:10px}' +
+      'button:last-child{margin-right:0}button:hover{background:#283593}' +
+      '.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}' +
+      '</style></head><body>' +
+      '<h3>✏️ Editar Participante</h3>' +
+      '<div class="row">' +
+      '<div><label>ID</label><input id="id" value="'+escaparHtml(String(datos[C.ID-1]||''))+'" disabled style="background:#f0f0f0"></div>' +
+      '<div><label>Nombre</label><input id="nombre" value="'+escaparHtml(String(datos[C.NOMBRE-1]||''))+'"></div>' +
+      '<div><label>DPI</label><input id="dpi" value="'+escaparHtml(String(datos[C.DPI-1]||''))+'"></div>' +
+      '<div><label>Edad</label><input id="edad" type="number" value="'+(datos[C.EDAD-1]||'')+'"></div>' +
+      '<div><label>Género</label><select id="genero"><option>—</option><option '+(datos[C.GENERO-1]==='Masculino'?'selected':'')+'>Masculino</option><option '+(datos[C.GENERO-1]==='Femenino'?'selected':'')+'>Femenino</option><option '+(datos[C.GENERO-1]==='Otro'?'selected':'')+'>Otro</option></select></div>' +
+      '<div><label>Teléfono</label><input id="tel" value="'+escaparHtml(String(datos[C.TELEFONO-1]||''))+'"></div>' +
+      '<div><label>Zona</label><input id="zona" value="'+escaparHtml(String(datos[C.ZONA-1]||''))+'"></div>' +
+      '<div><label>Email</label><input id="email" type="email" value="'+escaparHtml(String(datos[C.EMAIL-1]||''))+'"></div>' +
+      '<div class="full"><label>Educación</label><input id="educacion" value="'+escaparHtml(String(datos[C.EDUCACION-1]||''))+'"></div>' +
+      '<div class="full"><label>Situación laboral</label><input id="laboral" value="'+escaparHtml(String(datos[C.LABORAL-1]||''))+'"></div>' +
+      '<div class="full"><label>Fortalezas</label><textarea id="fortalezas">'+escaparHtml(String(datos[C.FORTALEZAS-1]||''))+'</textarea></div>' +
+      '<div class="full"><label>Objetivo laboral</label><textarea id="objetivo">'+escaparHtml(String(datos[C.OBJETIVO-1]||''))+'</textarea></div>' +
+      '<div><label>Perfil</label><select id="perfil"><option>—</option><option '+(datos[C.PERFIL-1]==='Perfil A'?'selected':'')+'>Perfil A</option><option '+(datos[C.PERFIL-1]==='Perfil B'?'selected':'')+'>Perfil B</option><option '+(datos[C.PERFIL-1]==='Perfil C'?'selected':'')+'>Perfil C</option><option '+(datos[C.PERFIL-1]==='Perfil D'?'selected':'')+'>Perfil D</option></select></div>' +
+      '<div><label>Estado</label><select id="estado"><option '+(datos[C.ESTADO-1]==='Orientación'?'selected':'')+'>Orientación</option><option '+(datos[C.ESTADO-1]==='Mentoría'?'selected':'')+'>Mentoría</option><option '+(datos[C.ESTADO-1]==='Formación'?'selected':'')+'>Formación</option><option '+(datos[C.ESTADO-1]==='Cierre'?'selected':'')+'>Cierre</option><option '+(datos[C.ESTADO-1]==='Inactivo'?'selected':'')+'>Inactivo</option></select></div>' +
+      '<button onclick="google.script.host.close()">✗ Cancelar</button>' +
+      '<button onclick="guardar()">✅ Guardar Cambios</button>' +
+      '</div>' +
+      '<script>' +
+      'function guardar(){var obj={nombre:document.getElementById("nombre").value.trim(),dpi:document.getElementById("dpi").value.trim(),edad:document.getElementById("edad").value.trim(),genero:document.getElementById("genero").value,tel:document.getElementById("tel").value.trim(),zona:document.getElementById("zona").value.trim(),email:document.getElementById("email").value.trim(),educacion:document.getElementById("educacion").value.trim(),laboral:document.getElementById("laboral").value.trim(),fortalezas:document.getElementById("fortalezas").value.trim(),objetivo:document.getElementById("objetivo").value.trim(),perfil:document.getElementById("perfil").value,estado:document.getElementById("estado").value};' +
+      'google.script.run.withSuccessHandler(function(){alert("✅ Cambios guardados");google.script.host.close();}).guardarEdicionParticipante('+rango.getRow()+',obj);' +
+      '}' +
+      '</script></body></html>'
+    ).setWidth(380).setHeight(650);
+    SpreadsheetApp.getUi().showModelessDialog(html, '✏️ Editar Participante');
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+function guardarEdicionParticipante(fila, datos) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) return;
+    const M = CONFIG.COL;
+    hoja.getRange(fila, M.NOMBRE,     1, 1).setValue(datos.nombre);
+    hoja.getRange(fila, M.DPI,        1, 1).setValue(datos.dpi);
+    hoja.getRange(fila, M.EDAD,       1, 1).setValue(datos.edad);
+    hoja.getRange(fila, M.GENERO,     1, 1).setValue(datos.genero);
+    hoja.getRange(fila, M.TELEFONO,   1, 1).setValue(datos.tel);
+    hoja.getRange(fila, M.ZONA,       1, 1).setValue(datos.zona);
+    hoja.getRange(fila, M.EMAIL,      1, 1).setValue(datos.email);
+    hoja.getRange(fila, M.EDUCACION,  1, 1).setValue(datos.educacion);
+    hoja.getRange(fila, M.LABORAL,    1, 1).setValue(datos.laboral);
+    hoja.getRange(fila, M.FORTALEZAS, 1, 1).setValue(datos.fortalezas);
+    hoja.getRange(fila, M.OBJETIVO,   1, 1).setValue(datos.objetivo);
+    hoja.getRange(fila, M.PERFIL,     1, 1).setValue(datos.perfil === '—' ? '' : datos.perfil);
+    hoja.getRange(fila, M.ESTADO,     1, 1).setValue(datos.estado);
+    colorearFila(hoja, fila, datos.perfil);
+    SpreadsheetApp.flush();
+  } catch(e) { logError('guardarEdicionParticipante', e); }
+}
+
+// ============================================================================
+// FORMULARIO DE DERIVACIÓN MEJORADO
+// ============================================================================
+
+function abrirFormDerivacion() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const hoja  = ss.getSheetByName(CONFIG.HOJA);
+    const rango = ss.getActiveRange();
+    if (!hoja || rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona un participante en Maestro.');
+      return;
+    }
+    const datos = hoja.getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    const C = CONFIG.COL;
+    const id   = datos[C.ID-1]   || '';
+    const nom  = datos[C.NOMBRE-1] || '';
+    if (!id) { SpreadsheetApp.getUi().alert('⚠️ Participante sin ID.'); return; }
+
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+      '.info{background:#e3f2fd;border-left:4px solid #1a237e;padding:12px;margin-bottom:14px;border-radius:4px}' +
+      '.info strong{color:#1a237e}' +
+      'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
+      'input,select,textarea{width:100%;padding:8px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+      'textarea{height:80px;resize:vertical}' +
+      'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold;margin-top:10px}' +
+      'button:hover{background:#283593}' +
+      '</style></head><body>' +
+      '<h3>➡️ Registrar Derivación</h3>' +
+      '<div class="info"><strong>Participante:</strong> '+escaparHtml(nom)+'<br><strong>ID:</strong> '+escaparHtml(id)+'</div>' +
+      '<label>Tipo de derivación *</label>' +
+      '<select id="tipo" required>' +
+      '<option value="">Selecciona...</option>' +
+      '<option value="💡 SUGERIDA">💡 SUGERIDA — Recomendación</option>' +
+      '<option value="⚠️ ALERTA">⚠️ ALERTA — Requiere atención</option>' +
+      '<option value="🚨 URGENTE">🚨 URGENTE — Caso crítico</option>' +
+      '</select>' +
+      '<label>Organización/Programa destino *</label>' +
+      '<select id="org" required>' +
+      '<option value="">Selecciona...</option>' +
+      '<option>Creamos Voces (Apoyo Emocional)</option>' +
+      '<option>Mentoría Vocacional</option>' +
+      '<option>Intermediación Laboral</option>' +
+      '<option>Formación Técnica</option>' +
+      '<option>Educación de Adultos</option>' +
+      '<option>Alfabetización Digital</option>' +
+      '<option>Servicios Profesionales (Legal/Salud)</option>' +
+      '<option>Grupos de Apoyo Comunitario</option>' +
+      '<option>Otro programa Creamos</option>' +
+      '<option>Entidad pública</option>' +
+      '<option>ONG externa</option>' +
+      '<option>Otra</option>' +
+      '</select>' +
+      '<label>Motivo/Justificación *</label>' +
+      '<textarea id="motivo" placeholder="¿Por qué se deriva a este programa?" required></textarea>' +
+      '<label>Notas adicionales</label>' +
+      '<textarea id="notas" placeholder="Información complementaria..." maxlength="500"></textarea>' +
+      '<button onclick="guardar()">✅ Registrar Derivación</button>' +
+      '<script>' +
+      'function guardar(){' +
+      'var t=document.getElementById("tipo").value,' +
+      'o=document.getElementById("org").value,' +
+      'm=document.getElementById("motivo").value.trim(),' +
+      'n=document.getElementById("notas").value.trim();' +
+      'if(!t||!o||!m){alert("Completa: Tipo, Organización y Motivo");return;}' +
+      'google.script.run.withSuccessHandler(function(){alert("✅ Derivación registrada");google.script.host.close();}).guardarDerivacion("'+escaparHtml(id)+'","'+escaparHtml(nom)+'",t,o,m,n);' +
+      '}' +
+      '</script></body></html>'
+    ).setWidth(380).setHeight(540);
+    SpreadsheetApp.getUi().showModelessDialog(html, '➡️ Derivar Participante');
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
 // ============================================================================
