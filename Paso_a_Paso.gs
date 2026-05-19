@@ -1686,55 +1686,82 @@ function normalizarPrioridad(valor) {
 function desinstalarYLimpiar() {
   const ui = SpreadsheetApp.getUi();
   const resp1 = ui.alert(
-    '⚠️ DESINSTALAR SISTEMA',
-    '¿Confirmas que quieres eliminar?\n\n' +
-    '• Todas las carpetas y documentos de participantes en Drive\n' +
-    '• Hojas: Derivaciones, Log, Dashboard\n' +
-    '• Todos los triggers automáticos\n\n' +
-    'La hoja Maestro se conserva con sus datos.',
+    '⚠️ DESINSTALAR SISTEMA — LIMPIEZA TOTAL',
+    '¿Confirmas que quieres eliminar TODO?\n\n' +
+    '• Carpetas y documentos de participantes en Drive\n' +
+    '• TODAS las hojas (Maestro, Derivaciones, Log, Dashboard, Analytics)\n' +
+    '• Todos los triggers automáticos\n' +
+    '• Toda la configuración guardada\n\n' +
+    '⛔ Esta acción NO se puede deshacer.',
     ui.ButtonSet.YES_NO
   );
   if (resp1 !== ui.Button.YES) return;
 
-  const resp2 = ui.alert('⚠️ CONFIRMAR', '¿Estás 100% seguro? Esta acción NO se puede deshacer.', ui.ButtonSet.YES_NO);
+  const resp2 = ui.alert('⚠️ ÚLTIMA CONFIRMACIÓN', '¿Estás 100% seguro?\nSe perderán TODOS los datos.', ui.ButtonSet.YES_NO);
   if (resp2 !== ui.Button.YES) return;
 
-  try {
-    let eliminados = 0;
+  const ss = SpreadsheetApp.getActive();
+  let driveEliminados = 0;
+  let driveErrores    = 0;
 
-    // Eliminar carpetas de participantes en Drive
-    try {
-      const folderId = getFolderId();
-      const folderBase = DriveApp.getFolderById(folderId);
-      const subcarpetas = folderBase.getFolders();
-      while (subcarpetas.hasNext()) {
-        subcarpetas.next().setTrashed(true);
-        eliminados++;
+  // ── 1. Recoger IDs de Drive ANTES de borrar el Maestro ──────────────────────
+  const hojaMaestro = ss.getSheetByName(CONFIG.HOJA);
+  if (hojaMaestro && hojaMaestro.getLastRow() > 1) {
+    const M = CONFIG.COL;
+    const datos = hojaMaestro.getRange(2, 1, hojaMaestro.getLastRow() - 1, 26).getValues();
+    datos.forEach(fila => {
+      const carpetaId = String(fila[M.CARPETA_ID - 1] || '').trim();
+      const docId     = String(fila[M.DOC_ID     - 1] || '').trim();
+      // Borrar la carpeta (esto arrastra todo lo que haya dentro)
+      if (carpetaId) {
+        try { DriveApp.getFolderById(carpetaId).setTrashed(true); driveEliminados++; }
+        catch(e) {
+          // Si la carpeta ya no existe, intentar borrar solo el doc
+          if (docId) {
+            try { DriveApp.getFileById(docId).setTrashed(true); }
+            catch(e2) { driveErrores++; }
+          }
+        }
+      } else if (docId) {
+        try { DriveApp.getFileById(docId).setTrashed(true); driveEliminados++; }
+        catch(e) { driveErrores++; }
       }
-    } catch(e) {}
-
-    // Eliminar hojas secundarias
-    const ss = SpreadsheetApp.getActive();
-    ['Derivaciones', 'Log', 'Dashboard'].forEach(nombre => {
-      const h = ss.getSheetByName(nombre);
-      if (h) ss.deleteSheet(h);
     });
-
-    // Eliminar todos los triggers
-    ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
-
-    // Limpiar PropertiesService
-    PropertiesService.getUserProperties().deleteAllProperties();
-
-    ui.alert('✅ Sistema limpiado\n\n' +
-      '• ' + eliminados + ' carpetas eliminadas de Drive\n' +
-      '• Hojas secundarias eliminadas\n' +
-      '• Triggers eliminados\n\n' +
-      'Puedes volver a instalar con 📥 Instalar Sistema.'
-    );
-  } catch(e) {
-    ui.alert('❌ Error al desinstalar: ' + e);
   }
+
+  // ── 2. Borrar TODAS las hojas del sistema ────────────────────────────────────
+  // Google Sheets necesita al menos 1 hoja → creamos una temporal primero
+  let hojaTemp;
+  try {
+    hojaTemp = ss.insertSheet('_temp_');
+  } catch(e) {}
+
+  ['Maestro', 'Derivaciones', 'Log', 'Dashboard', 'Analytics'].forEach(nombre => {
+    const h = ss.getSheetByName(nombre);
+    if (h) {
+      try { ss.deleteSheet(h); } catch(e) {}
+    }
+  });
+
+  // Renombrar la hoja temporal a algo limpio
+  if (hojaTemp) {
+    try { hojaTemp.setName('Hoja1'); } catch(e) {}
+  }
+
+  // ── 3. Eliminar todos los triggers ──────────────────────────────────────────
+  ScriptApp.getProjectTriggers().forEach(t => { try { ScriptApp.deleteTrigger(t); } catch(e) {} });
+
+  // ── 4. Limpiar configuración guardada ────────────────────────────────────────
+  PropertiesService.getUserProperties().deleteAllProperties();
+
+  ui.alert(
+    '✅ Sistema eliminado completamente\n\n' +
+    '📁 Drive: ' + driveEliminados + ' carpeta(s)/archivo(s) enviados a la papelera' +
+    (driveErrores > 0 ? ' (' + driveErrores + ' errores)' : '') + '\n' +
+    '📋 Hojas: Maestro, Derivaciones, Log, Dashboard, Analytics eliminadas\n' +
+    '⏱️ Triggers: eliminados\n\n' +
+    'Para empezar de nuevo: 📥 Instalar Sistema'
+  );
 }
 
 // ============================================================================
