@@ -103,6 +103,71 @@ function validarTransicionEstado(estadoAnterior, estadoNuevo) {
   return null;
 }
 
+// Marca de versión — sirve para confirmar que el código nuevo SÍ está cargado
+const VERSION_SISTEMA = 'v8.6-2026-05-19';
+
+// ============================================================================
+// DIAGNÓSTICO — Ejecuta esto PRIMERO si algo falla.
+// Te dice qué versión del código está corriendo, qué triggers hay,
+// y captura el error EXACTO con su línea.
+// ============================================================================
+
+function diagnostico() {
+  const ui = SpreadsheetApp.getUi();
+  let reporte = '🔍 DIAGNÓSTICO DEL SISTEMA\n';
+  reporte += '═══════════════════════════════\n\n';
+
+  // 1. Versión del código cargado
+  reporte += '📌 VERSIÓN CARGADA: ' + (typeof VERSION_SISTEMA !== 'undefined' ? VERSION_SISTEMA : '❌ DESCONOCIDA (código viejo)') + '\n';
+  reporte += '   (Debe decir v8.6 o más reciente)\n\n';
+
+  // 2. Triggers instalados
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    reporte += '⏱️ TRIGGERS INSTALADOS: ' + triggers.length + '\n';
+    triggers.forEach(t => {
+      reporte += '   • ' + t.getHandlerFunction() + ' (' + t.getEventType() + ')\n';
+    });
+    reporte += '\n';
+  } catch(e) {
+    reporte += '⏱️ Error leyendo triggers: ' + e + '\n\n';
+  }
+
+  // 3. Hojas existentes
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hojas = ss.getSheets().map(h => h.getName());
+    reporte += '📋 HOJAS: ' + hojas.join(', ') + '\n\n';
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    reporte += '   Maestro: ' + (maestro ? (maestro.getLastRow() - 1) + ' participantes' : '❌ NO EXISTE') + '\n\n';
+  } catch(e) {
+    reporte += '📋 Error leyendo hojas: ' + e + '\n\n';
+  }
+
+  // 4. Configuración
+  const props = PropertiesService.getUserProperties();
+  reporte += '⚙️ CONFIGURACIÓN:\n';
+  reporte += '   API Key Kobo: ' + (props.getProperty('KOBO_API_KEY') ? '✅ configurada' : '❌ NO configurada') + '\n';
+  reporte += '   Folder Drive: ' + (props.getProperty('FOLDER_ID') ? '✅ configurado' : '⚠️ usa default') + '\n\n';
+
+  // 5. Prueba de acceso a DP_Empleabilidad
+  reporte += '🏢 DP_EMPLEABILIDAD:\n';
+  try {
+    const ext = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID);
+    const hf = ext.getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    reporte += hf
+      ? '   ✅ Accesible — ' + (hf.getLastRow() - 1) + ' filas en "' + DP_EMPLEABILIDAD.HOJA + '"\n\n'
+      : '   ⚠️ Spreadsheet OK pero NO existe la hoja "' + DP_EMPLEABILIDAD.HOJA + '"\n\n';
+  } catch(e) {
+    reporte += '   ❌ NO accesible: ' + e + '\n\n';
+  }
+
+  reporte += '═══════════════════════════════\n';
+  reporte += 'Si VERSIÓN dice "DESCONOCIDA", tienes\ncódigo VIEJO. Borra TODOS los archivos .gs\ny deja solo este.';
+
+  ui.alert(reporte);
+}
+
 // ============================================================================
 // MENÚ
 // ============================================================================
@@ -111,6 +176,7 @@ function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('📊 PASO A PASO')
+      .addItem('🔍 DIAGNÓSTICO (ejecuta esto si falla)', 'diagnostico')
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
       .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
@@ -514,8 +580,8 @@ function sincronizar(silencioso) {
       agregados++;
     });
 
-    actualizarDashboard();
-    actualizarAnalytics(ss);
+    // NO llamar actualizarDashboard/Analytics aquí — causaban lentitud/errores.
+    // Se actualizan al abrir Dashboard o Analytics desde el menú.
 
     if (!silencioso) {
       SpreadsheetApp.getUi().alert('✅ Sincronizado\n👤 ' + agregados + ' nuevos\n📊 ' + registros.length + ' en Kobo');
@@ -1041,9 +1107,11 @@ function actualizarDashboard() {
     dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
     const puntajes = datos.map(r => Number(r[CONFIG.COL.PUNTAJE - 1])).filter(n => n > 0);
     const prom = puntajes.length ? Math.round(puntajes.reduce((a, b) => a + b, 0) / puntajes.length) : 0;
+    const maxP = puntajes.reduce((a, b) => b > a ? b : a, 0);
+    const minP = puntajes.length ? puntajes.reduce((a, b) => b < a ? b : a, puntajes[0]) : 0;
     dash.appendRow(['Puntaje promedio', prom + ' / 60']);
-    dash.appendRow(['Máximo', Math.max(...puntajes) || 0]);
-    dash.appendRow(['Mínimo', Math.min(...puntajes) || 0]);
+    dash.appendRow(['Máximo', maxP]);
+    dash.appendRow(['Mínimo', minP]);
 
     // Ancho de columnas
     dash.setColumnWidth(1, 250);
@@ -1644,9 +1712,11 @@ function actualizarAnalytics(ss) {
     titulo('DIAGNÓSTICO — PUNTAJE TOTAL');
     const pts = datos.map(r => Number(r[CONFIG.COL.PUNTAJE-1])).filter(v => v > 0);
     const prom = pts.length ? Math.round(pts.reduce((a,b) => a+b,0) / pts.length) : 0;
+    const maxPt = pts.reduce((a, b) => b > a ? b : a, 0);
+    const minPt = pts.length ? pts.reduce((a, b) => b < a ? b : a, pts[0]) : 0;
     fila2('Promedio', prom + ' / 60');
-    fila2('Máximo',   pts.length ? Math.max(...pts) + ' / 60' : '—');
-    fila2('Mínimo',   pts.length ? Math.min(...pts) + ' / 60' : '—');
+    fila2('Máximo',   pts.length ? maxPt + ' / 60' : '—');
+    fila2('Mínimo',   pts.length ? minPt + ' / 60' : '—');
     const bajo30 = pts.filter(p => p < 30).length;
     if (bajo30 > 0) fila2('⚠️ Con puntaje < 30 (necesitan más apoyo)', bajo30, '#ffcdd2');
 
