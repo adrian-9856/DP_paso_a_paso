@@ -123,36 +123,46 @@ function validarTransicionEstado(ant, nuevo) {
 
 function onOpen() {
   try {
-    SpreadsheetApp.getUi()
-      .createMenu('📊 PASO A PASO')
-      .addItem('🔍 Diagnóstico del Sistema', 'diagnostico')
-      .addItem('📥 Instalar Sistema', 'instalar')
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('📊 PASO A PASO')
+      // ── Sistema ──
+      .addItem('🔍 Diagnóstico del Sistema',  'diagnostico')
+      .addItem('📥 Instalar Sistema',          'instalar')
+      .addItem('⚙️ Configuración',             'abrirConfiguracion')
       .addSeparator()
-      .addItem('➕ Agregar Participante', 'agregarParticipanteManual')
-      .addItem('✏️ Editar Participante', 'editarParticipante')
+      // ── Participantes ──
+      .addSubMenu(ui.createMenu('👤 Participantes')
+        .addItem('➕ Agregar Participante',     'agregarParticipanteManual')
+        .addItem('✏️ Editar Participante',      'editarParticipante')
+        .addItem('📋 Ver Ficha',               'verFicha')
+        .addItem('➡️ Derivar Participante',    'abrirFormDerivacion')
+        .addItem('📊 Ver Derivaciones',         'verDerivaciones')
+      )
+      // ── Datos & Sincronización ──
+      .addSubMenu(ui.createMenu('🔄 Datos & Sincronización')
+        .addItem('🔄 Sincronizar Kobo',         'sincronizarConValidaciones')
+        .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
+        .addItem('📁 Crear Expedientes Drive',   'crearExpedientesPendientes')
+        .addItem('🎨 Colorear Tabla',            'colorearTabla')
+        .addItem('🔁 Restaurar desde Drive',     'restaurarDesdeDrive')
+      )
+      // ── Reportes & Análisis ──
+      .addSubMenu(ui.createMenu('📊 Reportes & Análisis')
+        .addItem('📊 Dashboard',               'abrirDashboard')
+        .addItem('📈 Analytics',               'abrirAnalytics')
+        .addItem('📋 Calidad de Datos',        'analizarCalidadDatos')
+      )
+      // ── Herramientas Kobo ──
+      .addSubMenu(ui.createMenu('🔬 Herramientas Kobo')
+        .addItem('🧪 Probar Conexión Kobo',    'probarKobo')
+        .addItem('🔬 Inspeccionar Campos',     'diagnosticoCamposKobo')
+        .addItem('⚖️ Comparar Mapeos',          'compararMapeosKobo')
+        .addItem('🔍 Ver Primer Registro',     'inspeccionarPrimerRegistroKobo')
+        .addItem('📋 Exportar Muestra',        'exportarMuestraKoboASheet')
+      )
       .addSeparator()
-      .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
-      .addItem('📁 Crear Expedientes Drive', 'crearExpedientesPendientes')
-      .addItem('🔄 Sincronizar Kobo', 'sincronizar')
-      .addItem('🔄✅ Sincronizar Kobo (con validaciones)', 'sincronizarConValidaciones')
-      .addItem('🎨 Colorear Tabla', 'colorearTabla')
-      .addSeparator()
-      .addItem('📊 Dashboard', 'abrirDashboard')
-      .addItem('📈 Analytics', 'abrirAnalytics')
-      .addItem('📋 Ver Ficha del Participante', 'verFicha')
-      .addItem('➡️ Derivar Participante', 'abrirFormDerivacion')
-      .addItem('📊 Ver Derivaciones', 'verDerivaciones')
-      .addSeparator()
-      .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
-      .addItem('🧪 Probar Kobo', 'probarKobo')
-      .addItem('🔬 Inspeccionar Campos Kobo', 'diagnosticoCamposKobo')
-      .addItem('📊 Analizar Calidad de Datos', 'analizarCalidadDatos')
-      .addItem('🔍 Ver Primer Registro Kobo', 'inspeccionarPrimerRegistroKobo')
-      .addItem('⚖️ Comparar Mapeos', 'compararMapeosKobo')
-      .addItem('📋 Exportar Muestra Kobo', 'exportarMuestraKoboASheet')
-      .addItem('⚙️ Configuración', 'abrirConfiguracion')
-      .addSeparator()
-      .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
+      // ── Zona peligrosa ──
+      .addItem('🗑️ Desinstalar & Limpiar',     'desinstalarYLimpiar')
       .addToUi();
   } catch(e) {}
 }
@@ -1792,6 +1802,91 @@ function desinstalarYLimpiar() {
     '⏱️ Triggers eliminados\n\n' +
     'Para empezar de nuevo: 📥 Instalar Sistema'
   );
+}
+
+// ============================================================================
+// DIAGNÓSTICO DE CAMPOS KOBO & CALIDAD DE DATOS
+// ============================================================================
+
+function diagnosticoCamposKobo() {
+  try {
+    const key = getKoboKey();
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
+      { headers: { Authorization: 'Token ' + key }, muteHttpExceptions: true }
+    );
+    if (resp.getResponseCode() !== 200) {
+      SpreadsheetApp.getUi().alert('❌ Error Kobo: ' + resp.getResponseCode()); return;
+    }
+    const primer = JSON.parse(resp.getContentText()).results[0] || {};
+    const campos = Object.keys(primer).filter(k => !k.startsWith('_')).sort();
+
+    const CRITICOS = ['nombre', 'dpi', 'telefono', 'edad', 'genero', 'email'];
+    let reporte = '🔬 CAMPOS DISPONIBLES EN KOBO\n══════════════════════════════\n\n';
+    reporte += '🔵 CRÍTICOS:\n';
+    CRITICOS.forEach(c => {
+      const match = campos.find(k => k.toLowerCase().includes(c));
+      reporte += `  ${c.padEnd(10)} → ${match || '❌ NO ENCONTRADO'}\n`;
+    });
+    reporte += `\n🟢 TODOS LOS CAMPOS (${campos.length}):\n`;
+    campos.forEach(c => { reporte += `  • ${c}\n`; });
+
+    const ui = SpreadsheetApp.getUi();
+    if (ui.alert(reporte, ui.ButtonSet.OK_CANCEL) === ui.Button.OK) {
+      const ss = SpreadsheetApp.getActive();
+      let log = ss.getSheetByName('Log');
+      if (!log) { log = ss.insertSheet('Log'); log.appendRow(['Timestamp','Tipo','Detalle','Usuario']); }
+      log.appendRow([new Date(), '🔬 DIAGNÓSTICO KOBO', reporte, Session.getEffectiveUser().getEmail()]);
+    }
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('diagnosticoCamposKobo', e);
+  }
+}
+
+function analizarCalidadDatos() {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay datos para analizar'); return;
+    }
+    const M = CONFIG.COL;
+    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 10).getValues();
+    const stats = { total: datos.length, nombre: 0, dpi: 0, tel: 0, email: 0, completos: 0, incompletos: [] };
+
+    datos.forEach((f, i) => {
+      if (f[M.NOMBRE-1]) stats.nombre++;
+      if (f[M.DPI-1])    stats.dpi++;
+      if (f[M.TELEFONO-1]) stats.tel++;
+      if (f[M.EMAIL-1])  stats.email++;
+      if (f[M.NOMBRE-1] && f[M.DPI-1] && f[M.TELEFONO-1]) {
+        stats.completos++;
+      } else {
+        const falta = [!f[M.NOMBRE-1]?'Nombre':'', !f[M.DPI-1]?'DPI':'', !f[M.TELEFONO-1]?'Teléfono':''].filter(x=>x).join(', ');
+        stats.incompletos.push({ id: f[M.ID-1], nombre: f[M.NOMBRE-1], fila: i+2, falta });
+      }
+    });
+
+    const pct = n => ((n / stats.total) * 100).toFixed(0) + '%';
+    let panel = `📊 CALIDAD DE DATOS\n${'═'.repeat(40)}\n\nTotal participantes: ${stats.total}\n\n`;
+    panel += `✅ COMPLETITUD:\n`;
+    panel += `  Nombre    ${pct(stats.nombre).padStart(5)} (${stats.nombre}/${stats.total})\n`;
+    panel += `  DPI       ${pct(stats.dpi).padStart(5)} (${stats.dpi}/${stats.total})\n`;
+    panel += `  Teléfono  ${pct(stats.tel).padStart(5)} (${stats.tel}/${stats.total})\n`;
+    panel += `  Email     ${pct(stats.email).padStart(5)} (${stats.email}/${stats.total})\n`;
+    panel += `\n🟢 Registros completos: ${pct(stats.completos)} (${stats.completos}/${stats.total})\n`;
+    if (stats.incompletos.length) {
+      panel += `\n🔴 Incompletos (${stats.incompletos.length}):\n`;
+      stats.incompletos.slice(0, 8).forEach(r => {
+        panel += `  Fila ${r.fila}: ${r.nombre || '(sin nombre)'} — falta: ${r.falta}\n`;
+      });
+      if (stats.incompletos.length > 8) panel += `  ... y ${stats.incompletos.length - 8} más\n`;
+    }
+    SpreadsheetApp.getUi().alert(panel);
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('analizarCalidadDatos', e);
+  }
 }
 
 // ============================================================================
