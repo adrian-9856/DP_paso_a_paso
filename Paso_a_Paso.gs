@@ -50,11 +50,23 @@ function getCredencial(clave) {
 }
 
 function getFolderId() {
-  return getFolderId();
+  const props = PropertiesService.getUserProperties();
+  let folderId = props.getProperty('FOLDER_ID');
+  if (!folderId) {
+    folderId = CONFIG.FOLDER_PARTICIPANTES_ID;
+    props.setProperty('FOLDER_ID', folderId);
+  }
+  return folderId;
 }
 
 function getAdminEmail() {
-  return getAdminEmail();
+  const props = PropertiesService.getUserProperties();
+  let email = props.getProperty('ADMIN_EMAIL');
+  if (!email) {
+    email = CONFIG.ADMIN_EMAIL;
+    props.setProperty('ADMIN_EMAIL', email);
+  }
+  return email;
 }
 
 function logError(nombreFuncion, error) {
