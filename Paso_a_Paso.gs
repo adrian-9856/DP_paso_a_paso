@@ -1,12 +1,11 @@
 // ============================================================================
-// SISTEMA PASO A PASO - FITO v7.0
-// Con Dashboard + Email + Alertas + Derivaciones + Historial
+// SISTEMA PASO A PASO — v8.7
+// Gestión de participantes: DP_Empleabilidad + Kobo + Drive + Email + Calendar
 // ============================================================================
 
 const CONFIG = {
   SPREADSHEET_ID:          SpreadsheetApp.getActive().getId(),
   FOLDER_PARTICIPANTES_ID: "1pVDrNCwLRX41qiu9jJBFZ--wNm1TSWXU",
-  KOBO_API_KEY:            "64cc018b88067397addd36b09288be8b6539cf39",
   KOBO_ASSET_ID:           "abHRWdRnPhKwzPQBajc7RZ",
   KOBO_URL:                "https://kf.kobotoolbox.org/api/v2",
   HOJA:                    "Maestro",
@@ -17,13 +16,106 @@ const CONFIG = {
     "Perfil C": { fondo: "#fff2cc", texto: "#7f6000" },
     "Perfil D": { fondo: "#f4cccc", texto: "#660000" }
   },
+  // Columnas 1-based del Maestro (26 columnas en total)
   COL: {
-    ID: 1, FECHA: 2, NOMBRE: 3, DPI: 4, EDAD: 5, GENERO: 6, TELEFONO: 7,
-    ZONA: 8, EMAIL: 9, EDUCACION: 10, LABORAL: 11, FORTALEZAS: 12, OBJETIVO: 13,
-    PERFIL: 14, PRIORIDAD: 15, PUNTAJE: 16, DIM1: 17, DIM2: 18, DIM3: 19,
-    DIM4: 20, DIM5: 21, DIM6: 22, ESTADO: 23, CARPETA_ID: 24, DOC_ID: 25, DOC_URL: 26
+    ID:1, FECHA:2, NOMBRE:3, DPI:4, EDAD:5, GENERO:6, TELEFONO:7,
+    ZONA:8, EMAIL:9, EDUCACION:10, LABORAL:11, FORTALEZAS:12, OBJETIVO:13,
+    PERFIL:14, PRIORIDAD:15, PUNTAJE:16, DIM1:17, DIM2:18, DIM3:19,
+    DIM4:20, DIM5:21, DIM6:22, ESTADO:23, CARPETA_ID:24, DOC_ID:25, DOC_URL:26
   }
 };
+
+// DP_Empleabilidad — fuente externa
+// Hoja "Paso a paso": A=Fecha | B=ID | C=Nombre | D=Teléfono | E=Género | F=Edad
+//                     G=Educación | H=DPI | I=Formación | J=Cohorte | K=Nota | L=Activo
+const DP_EMPLEABILIDAD = {
+  SPREADSHEET_ID: '1_596FX6yr8tX93UyIks4emSeE2_vxLJMDyw9Zncsnzs',
+  HOJA: 'Paso a paso',
+  NCOLS: 12,
+  C: { FECHA:0, ID:1, NOMBRE:2, TELEFONO:3, GENERO:4, EDAD:5,
+       EDUCACION:6, DPI:7, FORMACION:8, COHORTE:9, NOTA:10, ACTIVO:11 }
+};
+
+const VERSION_SISTEMA = 'v8.7-2026-05-19';
+
+const FLUJO_ESTADOS = {
+  'Orientación': ['Mentoría', 'Derivación', 'Inactivo'],
+  'Mentoría':    ['Formación', 'Cierre', 'Derivación', 'Inactivo'],
+  'Formación':   ['Cierre', 'Derivación', 'Mentoría', 'Inactivo'],
+  'Derivación':  ['Mentoría', 'Formación', 'Cierre', 'Inactivo'],
+  'Inactivo':    ['Orientación', 'Mentoría'],
+  'Cierre':      [],
+  'Completado':  []
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function getFolderId() {
+  const p = PropertiesService.getUserProperties();
+  let id = p.getProperty('FOLDER_ID');
+  if (!id) { id = CONFIG.FOLDER_PARTICIPANTES_ID; p.setProperty('FOLDER_ID', id); }
+  return id;
+}
+
+function getAdminEmail() {
+  const p = PropertiesService.getUserProperties();
+  let em = p.getProperty('ADMIN_EMAIL');
+  if (!em) { em = CONFIG.ADMIN_EMAIL; p.setProperty('ADMIN_EMAIL', em); }
+  return em;
+}
+
+function getKoboKey() {
+  const v = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY');
+  if (!v) throw new Error('API Key de Kobo no configurada. Abre ⚙️ Configuración.');
+  return v;
+}
+
+function logError(fn, err) {
+  try {
+    const log = SpreadsheetApp.getActive().getSheetByName('Log');
+    if (log) log.appendRow([new Date(), '⚠️ ERROR', fn, '', '', String(err), Session.getEffectiveUser().getEmail()]);
+  } catch(e) {}
+}
+
+function escaparHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function normalizarPerfil(v) {
+  if (!v) return 'Sin perfil';
+  const s = String(v).toLowerCase();
+  if (s.includes('perfil a') || s === 'a') return 'Perfil A';
+  if (s.includes('perfil b') || s === 'b') return 'Perfil B';
+  if (s.includes('perfil c') || s === 'c') return 'Perfil C';
+  if (s.includes('perfil d') || s === 'd') return 'Perfil D';
+  return String(v);
+}
+
+function normalizarPrioridad(v) {
+  if (!v) return 'Sin prioridad';
+  const s = String(v).toLowerCase();
+  if (s.includes('crít') || s.includes('urgente')) return 'CRÍTICO';
+  if (s.includes('alto') || s.includes('alta'))    return 'ALTO';
+  if (s.includes('medio') || s.includes('media'))  return 'MEDIO';
+  if (s.includes('bajo') || s.includes('baja'))    return 'BAJO';
+  return String(v);
+}
+
+function validarTransicionEstado(ant, nuevo) {
+  if (!ant || ant === nuevo) return null;
+  const perm = FLUJO_ESTADOS[ant];
+  if (!perm) return null;
+  if (!perm.includes(nuevo)) {
+    return '⚠️ Transición no permitida: ' + ant + ' → ' + nuevo +
+      '\n\nDesde "' + ant + '" puedes ir a:\n• ' +
+      (perm.length ? perm.join('\n• ') : '(estado final, no permite cambios)');
+  }
+  return null;
+}
 
 // ============================================================================
 // MENÚ
@@ -33,26 +125,69 @@ function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('📊 PASO A PASO')
+      .addItem('🔍 Diagnóstico del Sistema', 'diagnostico')
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
+      .addItem('➕ Agregar Participante', 'agregarParticipanteManual')
+      .addItem('✏️ Editar Participante', 'editarParticipante')
+      .addSeparator()
+      .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
+      .addItem('📁 Crear Expedientes Drive', 'crearExpedientesPendientes')
       .addItem('🔄 Sincronizar Kobo', 'sincronizar')
       .addItem('🎨 Colorear Tabla', 'colorearTabla')
-      .addItem('📋 Ver Ficha', 'verFicha')
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('📈 Analytics', 'abrirAnalytics')
-      .addItem('➡️ Derivaciones', 'verDerivaciones')
-      .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
+      .addItem('📋 Ver Ficha del Participante', 'verFicha')
+      .addItem('➡️ Derivar Participante', 'abrirFormDerivacion')
+      .addItem('📊 Ver Derivaciones', 'verDerivaciones')
       .addSeparator()
+      .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addItem('🧪 Probar Kobo', 'probarKobo')
-      .addItem('🔍 Ver Campos Kobo', 'diagnosticarCamposKobo')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
       .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
       .addToUi();
-  } catch(e) {
-    // Sin contexto UI
-  }
+  } catch(e) {}
+}
+
+// ============================================================================
+// DIAGNÓSTICO
+// ============================================================================
+
+function diagnostico() {
+  const ui = SpreadsheetApp.getUi();
+  let r = '🔍 DIAGNÓSTICO DEL SISTEMA\n══════════════════════════════\n\n';
+  r += '📌 VERSIÓN: ' + VERSION_SISTEMA + '\n\n';
+
+  try {
+    const ts = ScriptApp.getProjectTriggers();
+    r += '⏱️ TRIGGERS (' + ts.length + '):\n';
+    ts.forEach(t => r += '   • ' + t.getHandlerFunction() + ' (' + t.getEventType() + ')\n');
+    r += '\n';
+  } catch(e) { r += '⏱️ Error: ' + e + '\n\n'; }
+
+  try {
+    const ss = SpreadsheetApp.getActive();
+    r += '📋 HOJAS: ' + ss.getSheets().map(h => h.getName()).join(', ') + '\n';
+    const m = ss.getSheetByName(CONFIG.HOJA);
+    r += '   Maestro: ' + (m ? (m.getLastRow()-1) + ' participantes' : '❌ NO EXISTE') + '\n\n';
+  } catch(e) { r += '📋 Error: ' + e + '\n\n'; }
+
+  const props = PropertiesService.getUserProperties();
+  r += '⚙️ CONFIGURACIÓN:\n';
+  r += '   API Key Kobo: ' + (props.getProperty('KOBO_API_KEY') ? '✅ OK' : '❌ No configurada') + '\n';
+  r += '   Folder Drive: ' + (props.getProperty('FOLDER_ID') || '(usando default)') + '\n\n';
+
+  r += '🏢 DP_EMPLEABILIDAD:\n';
+  try {
+    const ext = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID);
+    const hf  = ext.getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    r += hf ? '   ✅ Accesible — ' + (hf.getLastRow()-1) + ' filas en "' + DP_EMPLEABILIDAD.HOJA + '"' :
+              '   ⚠️ Hoja "' + DP_EMPLEABILIDAD.HOJA + '" no encontrada';
+  } catch(e) { r += '   ❌ No accesible: ' + e; }
+
+  ui.alert(r);
 }
 
 // ============================================================================
@@ -62,139 +197,380 @@ function onOpen() {
 function instalar() {
   try {
     const ss = SpreadsheetApp.getActive();
+    const HEADERS = [
+      'ID_Creamos','Fecha_Registro','Nombre_Completo','DPI','Edad','Género',
+      'Teléfono','Zona','Email','Nivel_Educativo','Situación_Laboral','Fortalezas',
+      'Objetivo_Laboral','Perfil_Asignado','Prioridad','Puntaje_Total',
+      'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional',
+      'Dim_Barreras','Dim_Apoyo','Estado','Carpeta_Drive_ID','Doc_Perfil_ID','Doc_Perfil_URL'
+    ];
 
-    // Crear hoja Maestro
-    let hoja = ss.getSheetByName(CONFIG.HOJA);
-    if (!hoja) {
-      hoja = ss.insertSheet(CONFIG.HOJA);
-    }
-    if (hoja.getLastRow() === 0) {
-      const headers = [
-        'ID_Creamos','Fecha_Registro','Nombre_Completo','DPI','Edad','Género',
-        'Teléfono','Zona','Email','Nivel_Educativo','Situación_Laboral','Fortalezas',
-        'Objetivo_Laboral','Perfil_Asignado','Prioridad','Puntaje_Total',
-        'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional',
-        'Dim_Barreras','Dim_Apoyo','Estado','Carpeta_Drive_ID','Doc_Perfil_ID','Doc_Perfil_URL'
-      ];
-      hoja.appendRow(headers);
-      hoja.getRange(1, 1, 1, headers.length)
-        .setBackground('#37474f').setFontColor('#ffffff').setFontWeight('bold');
-      hoja.setFrozenRows(1);
+    // Maestro
+    let maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro) maestro = ss.insertSheet(CONFIG.HOJA);
+    if (maestro.getLastRow() === 0) {
+      maestro.appendRow(HEADERS);
+      maestro.getRange(1,1,1,26)
+        .setBackground('#1a237e').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+      maestro.setFrozenRows(1);
+      maestro.setColumnWidth(1,120).setColumnWidth(3,220).setColumnWidth(13,200)
+             .setColumnWidth(24,160).setColumnWidth(25,160).setColumnWidth(26,280);
     }
 
-    // Crear hoja Derivaciones
+    // Derivaciones
     if (!ss.getSheetByName('Derivaciones')) {
-      const deriv = ss.insertSheet('Derivaciones');
-      deriv.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
-      deriv.getRange(1, 1, 1, 10).setBackground('#e65100').setFontColor('#ffffff').setFontWeight('bold');
-      deriv.setFrozenRows(1);
-      deriv.setColumnWidth(3, 180);
-      deriv.setColumnWidth(5, 220);
-      deriv.setColumnWidth(6, 250);
+      const d = ss.insertSheet('Derivaciones');
+      d.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
+      d.getRange(1,1,1,10).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
+      d.setFrozenRows(1);
+      d.setColumnWidth(3,180); d.setColumnWidth(5,200); d.setColumnWidth(6,250);
     }
 
-    // Crear hoja Analytics
+    // Log
+    if (!ss.getSheetByName('Log')) {
+      const l = ss.insertSheet('Log');
+      l.appendRow(['Fecha_Hora','Hoja','Fila','Columna','Valor_Anterior','Valor_Nuevo','Usuario']);
+      l.getRange(1,1,1,7).setBackground('#4a148c').setFontColor('#fff').setFontWeight('bold');
+      l.setFrozenRows(1);
+    }
+
+    // Dashboard
+    if (!ss.getSheetByName('Dashboard')) {
+      const db = ss.insertSheet('Dashboard');
+      db.appendRow(['DASHBOARD — PASO A PASO']);
+      db.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#1a237e');
+    }
+
+    // Analytics
     if (!ss.getSheetByName('Analytics')) {
       const an = ss.insertSheet('Analytics');
-      an.appendRow(['ANALYTICS - PASO A PASO']);
-      an.getRange(1, 1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
+      an.appendRow(['ANALYTICS — PASO A PASO']);
+      an.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
       an.setFrozenRows(1);
-    }
-
-    // Crear hoja Log
-    if (!ss.getSheetByName('Log')) {
-      const log = ss.insertSheet('Log');
-      log.appendRow(['Fecha_Hora','Hoja','Fila','Columna','Valor_Anterior','Valor_Nuevo','Usuario']);
-      log.getRange(1, 1, 1, 7).setBackground('#9c27b0').setFontColor('#ffffff').setFontWeight('bold');
-      log.setFrozenRows(1);
-    }
-
-    // Crear hoja Dashboard
-    if (!ss.getSheetByName('Dashboard')) {
-      const dash = ss.insertSheet('Dashboard');
-      dash.appendRow(['DASHBOARD - PASO A PASO']);
-      dash.getRange(1, 1).setFontSize(16).setFontWeight('bold');
     }
 
     configurarTriggers();
 
     SpreadsheetApp.getUi().alert(
-      '✅ Sistema v7.0 instalado\n\n' +
-      '✨ Nuevas características:\n' +
-      '📧 Email semanal los lunes\n' +
-      '🚨 Alertas de casos dormidos\n' +
-      '➡️ Registro de derivaciones\n' +
-      '📜 Historial de cambios\n' +
-      '📊 Dashboard automático\n\n' +
-      'Próximo: 🔄 Sincronizar Kobo'
+      '✅ Sistema v8.7 instalado\n\n' +
+      '📋 Hojas creadas: Maestro, Derivaciones, Log, Dashboard, Analytics\n' +
+      '⏱️ Triggers configurados\n\n' +
+      '⚙️ SIGUIENTE PASO:\n' +
+      'Abre ⚙️ Configuración e ingresa tu email\n' +
+      'y el ID de tu carpeta Drive.\n\n' +
+      'Luego: 🏢 Importar DP_Empleabilidad'
     );
   } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+    SpreadsheetApp.getUi().alert('❌ Error al instalar: ' + e);
   }
 }
 
 function configurarTriggers() {
-  const TRIGGERS = ['sincronizarAutomatico', 'enviarReporteSemanal', 'verificarCasosDormidos', 'manejarEdicion'];
+  const FNS = ['sincronizarAutomatico','enviarReporteSemanal','verificarCasosDormidos','manejarEdicion'];
   ScriptApp.getProjectTriggers().forEach(t => {
-    if (TRIGGERS.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+    if (FNS.includes(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
   });
-
-  // Sincronización diaria 8 AM
   ScriptApp.newTrigger('sincronizarAutomatico').timeBased().atHour(8).everyDays(1).create();
-
-  // Email semanal lunes 9 AM
   ScriptApp.newTrigger('enviarReporteSemanal').timeBased().atHour(9).onWeekDay(ScriptApp.WeekDay.MONDAY).create();
-
-  // Verificar casos dormidos diariamente 10 AM
   ScriptApp.newTrigger('verificarCasosDormidos').timeBased().atHour(10).everyDays(1).create();
-
-  // onEdit INSTALABLE — necesario para poder abrir Google Docs con permisos
   ScriptApp.newTrigger('manejarEdicion').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
 }
 
 function sincronizarAutomatico() {
-  sincronizar(true);
-  actualizarDashboard();
+  sincronizarDesdeSheet(true);
 }
 
 // ============================================================================
-// SINCRONIZAR KOBO
+// IMPORTAR DESDE DP_EMPLEABILIDAD
+// ============================================================================
+
+function sincronizarDesdeSheet(silencioso) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala el sistema primero (📥 Instalar Sistema).');
+      return;
+    }
+
+    let ssExt;
+    try { ssExt = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID); }
+    catch(e) {
+      if (!silencioso) SpreadsheetApp.getUi().alert(
+        '❌ No se puede abrir DP_Empleabilidad.\n\n' +
+        'Verifica que tienes acceso al Google Sheet:\n' + DP_EMPLEABILIDAD.SPREADSHEET_ID
+      );
+      return;
+    }
+
+    const hojaSrc = ssExt.getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    if (!hojaSrc) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ No existe la hoja "' + DP_EMPLEABILIDAD.HOJA + '" en DP_Empleabilidad.');
+      return;
+    }
+    if (hojaSrc.getLastRow() < 2) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ La hoja "' + DP_EMPLEABILIDAD.HOJA + '" no tiene datos.');
+      return;
+    }
+
+    // Leer toda la hoja fuente de una sola vez
+    const datos = hojaSrc.getRange(2, 1, hojaSrc.getLastRow()-1, DP_EMPLEABILIDAD.NCOLS).getValues();
+
+    // IDs ya existentes en Maestro → para evitar duplicados
+    const existentes = new Set();
+    if (hoja.getLastRow() > 1) {
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow()-1, 1)
+        .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0]).trim()); });
+    }
+
+    const C   = DP_EMPLEABILIDAD.C;
+    const M   = CONFIG.COL;
+    const hoy = new Date();
+    const filasMaestro      = [];
+    const filasDerivaciones = [];
+    let omitidos = 0;
+
+    datos.forEach(fila => {
+      const nombre = String(fila[C.NOMBRE] || '').trim();
+      if (!nombre) return; // fila vacía
+
+      let id = String(fila[C.ID] || '').trim();
+      if (!id) {
+        // Generar ID automático si la fuente no tiene uno
+        id = nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() +
+             Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'ddMMyyyy');
+      }
+
+      if (existentes.has(id)) { omitidos++; return; }
+      existentes.add(id);
+
+      const formacion = String(fila[C.FORMACION] || '').trim();
+      const cohorte   = String(fila[C.COHORTE]   || '').trim();
+      const nota      = String(fila[C.NOTA]       || '').trim();
+      const activoStr = String(fila[C.ACTIVO]     || '').toLowerCase().trim();
+      const activo    = ['true','si','sí','1','activo','yes'].includes(activoStr);
+      const estado    = activo ? 'Orientación' : 'Inactivo';
+      const fecha     = fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
+
+      // Construir fila completa (26 columnas) para el Maestro
+      const row = new Array(26).fill('');
+      row[M.ID         - 1] = id;
+      row[M.FECHA      - 1] = fecha;
+      row[M.NOMBRE     - 1] = nombre;
+      row[M.DPI        - 1] = String(fila[C.DPI]       || '').trim();
+      row[M.EDAD       - 1] = fila[C.EDAD] || '';
+      row[M.GENERO     - 1] = String(fila[C.GENERO]    || '').trim();
+      row[M.TELEFONO   - 1] = String(fila[C.TELEFONO]  || '').trim();
+      row[M.EDUCACION  - 1] = String(fila[C.EDUCACION] || '').trim();
+      row[M.LABORAL    - 1] = formacion;
+      row[M.FORTALEZAS - 1] = cohorte ? 'Cohorte: ' + cohorte : '';
+      row[M.OBJETIVO   - 1] = nota;
+      row[M.ESTADO     - 1] = estado;
+      // CARPETA_ID, DOC_ID, DOC_URL → se llenan con "📁 Crear Expedientes Drive"
+
+      filasMaestro.push(row);
+
+      if (formacion) {
+        filasDerivaciones.push([
+          hoy, id, nombre, '💡 SUGERIDA',
+          'Formación Técnica — ' + formacion,
+          'Importado de DP_Empleabilidad. Formación: ' + formacion + (cohorte ? ' | Cohorte: ' + cohorte : ''),
+          'Pendiente', '', '', nota
+        ]);
+      }
+    });
+
+    // Escribir Maestro — una sola llamada de API (eficiente)
+    if (filasMaestro.length > 0) {
+      hoja.getRange(hoja.getLastRow()+1, 1, filasMaestro.length, 26).setValues(filasMaestro);
+      SpreadsheetApp.flush();
+    }
+
+    // Escribir Derivaciones — una sola llamada de API
+    if (filasDerivaciones.length > 0) {
+      const deriv = ss.getSheetByName('Derivaciones');
+      if (deriv) {
+        const dr = deriv.getLastRow()+1;
+        deriv.getRange(dr, 1, filasDerivaciones.length, 10).setValues(filasDerivaciones);
+        deriv.getRange(dr, 1, filasDerivaciones.length, 10).setBackground('#e8f5e9');
+        SpreadsheetApp.flush();
+      }
+    }
+
+    if (!silencioso) {
+      SpreadsheetApp.getUi().alert(
+        '✅ Importación completada\n\n' +
+        '👤 ' + filasMaestro.length + ' participante(s) nuevo(s) en Maestro\n' +
+        '➡️ ' + filasDerivaciones.length + ' derivación(es) automática(s)\n' +
+        '⏭️ ' + omitidos + ' ya existían (omitidos)\n\n' +
+        (filasMaestro.length > 0
+          ? '📁 SIGUIENTE PASO:\nEjecuta "📁 Crear Expedientes Drive"\npara generar carpetas en Drive.'
+          : '✅ No hay participantes nuevos para importar.')
+      );
+    }
+  } catch(e) {
+    logError('sincronizarDesdeSheet', e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error al importar: ' + e.message);
+  }
+}
+
+// ============================================================================
+// CREAR EXPEDIENTES EN DRIVE (de a 10 para no agotar los 6 minutos)
+// ============================================================================
+
+function crearExpedientesPendientes() {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay participantes en el Maestro todavía.');
+      return;
+    }
+
+    const M          = CONFIG.COL;
+    const datos      = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues();
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    let creados      = 0;
+    let limite       = 10;
+
+    datos.forEach((fila, i) => {
+      if (limite <= 0) return;
+      if (fila[M.CARPETA_ID - 1]) return; // ya tiene expediente
+
+      const id     = String(fila[M.ID     - 1] || '').trim();
+      const nombre = String(fila[M.NOMBRE - 1] || '').trim();
+      if (!id || !nombre) return;
+
+      const exp = crearExpediente(folderBase, id, nombre, fila, M);
+      if (exp.carpetaId) {
+        hoja.getRange(i+2, M.CARPETA_ID, 1, 3).setValues([[exp.carpetaId, exp.docId, exp.docUrl]]);
+        creados++;
+        limite--;
+      }
+    });
+
+    SpreadsheetApp.flush();
+    const pendientes = datos.filter(f => !f[M.CARPETA_ID-1] && f[M.NOMBRE-1]).length - creados;
+
+    SpreadsheetApp.getUi().alert(
+      '✅ Expedientes creados: ' + creados + '\n\n' +
+      (pendientes > 0
+        ? '⏳ Faltan ' + pendientes + ' más.\nVuelve a ejecutar "📁 Crear Expedientes Drive".'
+        : '🎉 ¡Todos los expedientes están listos!')
+    );
+  } catch(e) {
+    logError('crearExpedientesPendientes', e);
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+  }
+}
+
+function crearExpediente(folderBase, id, nombre, fila, M) {
+  try {
+    const carpeta = folderBase.createFolder(id + ' — ' + nombre);
+    const doc     = DocumentApp.create('Perfil — ' + nombre);
+    DriveApp.getFileById(doc.getId()).moveTo(carpeta);
+    const body = doc.getBody();
+    body.clear();
+
+    const h1 = body.appendParagraph('PERFIL DEL PARTICIPANTE');
+    h1.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    h1.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    body.appendParagraph('ID: ' + id);
+    body.appendParagraph('');
+
+    const s1 = body.appendParagraph('DATOS PERSONALES');
+    s1.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Nombre:            ' + nombre);
+    body.appendParagraph('DPI:               ' + (fila[M.DPI-1]       || '—'));
+    body.appendParagraph('Edad:              ' + (fila[M.EDAD-1]      || '—'));
+    body.appendParagraph('Género:            ' + (fila[M.GENERO-1]    || '—'));
+    body.appendParagraph('Teléfono:          ' + (fila[M.TELEFONO-1]  || '—'));
+    body.appendParagraph('Zona:              ' + (fila[M.ZONA-1]      || '—'));
+    body.appendParagraph('Email:             ' + (fila[M.EMAIL-1]     || '—'));
+    body.appendParagraph('');
+
+    const s2 = body.appendParagraph('PERFIL PROFESIONAL');
+    s2.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Educación:         ' + (fila[M.EDUCACION-1]  || '—'));
+    body.appendParagraph('Situación laboral: ' + (fila[M.LABORAL-1]    || '—'));
+    body.appendParagraph('Fortalezas:        ' + (fila[M.FORTALEZAS-1] || '—'));
+    body.appendParagraph('Objetivo laboral:  ' + (fila[M.OBJETIVO-1]   || '—'));
+    body.appendParagraph('');
+
+    const s3 = body.appendParagraph('DIAGNÓSTICO');
+    s3.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Perfil:            ' + (fila[M.PERFIL-1]    || '—'));
+    body.appendParagraph('Prioridad:         ' + (fila[M.PRIORIDAD-1] || '—'));
+    body.appendParagraph('Puntaje total:     ' + (fila[M.PUNTAJE-1]   || 0) + '/60');
+    body.appendParagraph('Educativo:         ' + (fila[M.DIM1-1] || 0) + '/10');
+    body.appendParagraph('Laboral:           ' + (fila[M.DIM2-1] || 0) + '/10');
+    body.appendParagraph('Digital:           ' + (fila[M.DIM3-1] || 0) + '/10');
+    body.appendParagraph('Vocacional:        ' + (fila[M.DIM4-1] || 0) + '/10');
+    body.appendParagraph('Barreras:          ' + (fila[M.DIM5-1] || 0) + '/10');
+    body.appendParagraph('Red de apoyo:      ' + (fila[M.DIM6-1] || 0) + '/10');
+    body.appendParagraph('');
+
+    const s4 = body.appendParagraph('PLAN DE ACCIÓN');
+    s4.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('[Definir acciones concretas para este participante]');
+    body.appendParagraph('');
+
+    const s5 = body.appendParagraph('HISTORIAL DE CAMBIOS');
+    s5.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendParagraph('Fecha             | Campo            | Cambio                         | Usuario');
+    body.appendParagraph('─────────────────────────────────────────────────────────────────────────');
+
+    doc.saveAndClose();
+    const docId = doc.getId();
+    return {
+      carpetaId: carpeta.getId(),
+      docId:     docId,
+      docUrl:    'https://docs.google.com/document/d/' + docId + '/edit'
+    };
+  } catch(e) {
+    logError('crearExpediente', e);
+    return { carpetaId:'', docId:'', docUrl:'' };
+  }
+}
+
+// ============================================================================
+// SINCRONIZAR KOBO (opcional — si se usa KoboToolbox)
 // ============================================================================
 
 function sincronizar(silencioso) {
   try {
-    const ss = SpreadsheetApp.getActive();
+    const ss   = SpreadsheetApp.getActive();
     const hoja = ss.getSheetByName(CONFIG.HOJA);
-    if (!hoja) {
-      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala primero');
-      return;
-    }
+    if (!hoja) { if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala primero.'); return; }
 
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
+    let apiKey;
+    try { apiKey = getKoboKey(); }
+    catch(e) { if (!silencioso) SpreadsheetApp.getUi().alert('❌ ' + e.message); return; }
+
     const resp = UrlFetchApp.fetch(
       CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json',
       { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
     );
 
     if (resp.getResponseCode() !== 200) {
-      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode());
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode() + '\n\nVerifica tu API Key en ⚙️ Configuración.');
       return;
     }
 
     const registros = JSON.parse(resp.getContentText()).results || [];
     if (!registros.length) {
-      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ Sin respuestas en Kobo');
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ No hay respuestas en Kobo todavía.');
       return;
     }
 
     const existentes = new Set();
     if (hoja.getLastRow() > 1) {
-      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow()-1, 1)
         .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
     }
 
-    const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-    const folderBase = DriveApp.getFolderById(folderId);
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    const M = CONFIG.COL;
     let agregados = 0;
 
     registros.forEach(r => {
@@ -202,1008 +578,248 @@ function sincronizar(silencioso) {
       if (!id || existentes.has(id)) return;
 
       const nombre = r['nombre_completo_del_la_participante'] || 'Participante ' + id;
-      const expediente = crearExpediente(folderBase, id, nombre, r);
+      const fila   = new Array(26).fill('');
+      fila[M.ID-1]         = id;
+      fila[M.FECHA-1]      = new Date();
+      fila[M.NOMBRE-1]     = nombre;
+      fila[M.DPI-1]        = r['numero_de_dpi_opcional']                             || '';
+      fila[M.EDAD-1]       = r['edad']                                               || '';
+      fila[M.GENERO-1]     = r['genero']                                             || '';
+      fila[M.TELEFONO-1]   = r['numero_de_telefono']                                 || '';
+      fila[M.ZONA-1]       = r['lugar_de_residencia']                                || '';
+      fila[M.EMAIL-1]      = r['correo_electronico_opcional']                        || '';
+      fila[M.EDUCACION-1]  = r['cual_es_el_ultimo_grado_que_completaste']            || '';
+      fila[M.LABORAL-1]    = r['cual_es_tu_situacion_laboral_actual']                || '';
+      fila[M.FORTALEZAS-1] = r['que_sabes_hacer_bien']                               || '';
+      fila[M.OBJETIVO-1]   = r['que_tipo_de_empleo_estas_buscando_especificamente']  || '';
+      fila[M.PERFIL-1]     = normalizarPerfil(r['perfil_asignado']);
+      fila[M.PRIORIDAD-1]  = normalizarPrioridad(r['prioridad_caso']);
+      fila[M.PUNTAJE-1]    = Number(r['puntaje_total_60'])                           || 0;
+      fila[M.DIM1-1]       = Number(r['dimension_1_capital_educativo'])              || 0;
+      fila[M.DIM2-1]       = Number(r['dimension_2_capital_laboral'])                || 0;
+      fila[M.DIM3-1]       = Number(r['dimension_3_habilidades_digitales'])          || 0;
+      fila[M.DIM4-1]       = Number(r['dimension_4_claridad_vocacional'])            || 0;
+      fila[M.DIM5-1]       = Number(r['dimension_5_barreras_estructurales'])         || 0;
+      fila[M.DIM6-1]       = Number(r['dimension_6_red_apoyo'])                      || 0;
+      fila[M.ESTADO-1]     = 'Orientación';
 
-      const fila = [
-        id, new Date(), nombre,
-        r['numero_de_dpi_opcional'] || '',
-        r['edad'] || '',
-        r['genero'] || '',
-        r['numero_de_telefono'] || '',
-        r['lugar_de_residencia'] || '',
-        r['correo_electronico_opcional'] || '',
-        r['cual_es_el_ultimo_grado_que_completaste'] || '',
-        r['cual_es_tu_situacion_laboral_actual'] || '',
-        r['que_sabes_hacer_bien'] || '',
-        r['que_tipo_de_empleo_estas_buscando_especificamente'] || '',
-        normalizarPerfil(r['perfil_asignado']),
-        normalizarPrioridad(r['prioridad_caso']),
-        Number(r['puntaje_total_60']) || 0,
-        Number(r['dimension_1_capital_educativo']) || 0,
-        Number(r['dimension_2_capital_laboral']) || 0,
-        Number(r['dimension_3_habilidades_digitales']) || 0,
-        Number(r['dimension_4_claridad_vocacional']) || 0,
-        Number(r['dimension_5_barreras_estructurales']) || 0,
-        Number(r['dimension_6_red_apoyo']) || 0,
-        'Orientación',
-        expediente.carpetaId,
-        expediente.docId,
-        expediente.docUrl
-      ];
+      const exp = crearExpediente(folderBase, id, nombre, fila, M);
+      fila[M.CARPETA_ID-1] = exp.carpetaId;
+      fila[M.DOC_ID-1]     = exp.docId;
+      fila[M.DOC_URL-1]    = exp.docUrl;
 
       hoja.appendRow(fila);
-      colorearFila(hoja, hoja.getLastRow(), fila[CONFIG.COL.PERFIL - 1]);
-      registrarDerivacionesAutomaticas(ss, id, nombre, fila, r);
+      colorearFila(hoja, hoja.getLastRow(), fila[M.PERFIL-1]);
+      registrarDerivacionesAutomaticas(ss, id, nombre, fila, M);
+      existentes.add(id);
       agregados++;
     });
 
-    actualizarDashboard();
-    actualizarAnalytics(ss);
-
     if (!silencioso) {
-      SpreadsheetApp.getUi().alert('✅ Sincronizado\n👤 ' + agregados + ' nuevos\n📊 ' + registros.length + ' en Kobo');
+      SpreadsheetApp.getUi().alert('✅ Kobo sincronizado\n👤 ' + agregados + ' nuevos\n📊 ' + registros.length + ' total en Kobo');
     }
   } catch(e) {
-    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e);
+    logError('sincronizar', e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
   }
 }
 
 // ============================================================================
-// CREAR EXPEDIENTE
-// ============================================================================
-
-function crearExpediente(folderBase, id, nombre, datos) {
-  try {
-    const carpeta = folderBase.createFolder(id + ' - ' + nombre);
-    const doc = DocumentApp.create('Perfil - ' + nombre);
-    DriveApp.getFileById(doc.getId()).moveTo(carpeta);
-
-    const body = doc.getBody();
-    body.clear();
-
-    const t = body.appendParagraph('PERFIL DEL PARTICIPANTE');
-    t.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    t.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-
-    body.appendParagraph('ID: ' + id + '   |   Perfil: ' + (datos['perfil_asignado'] || '—') + '   |   Prioridad: ' + (datos['prioridad_caso'] || '—'));
-    body.appendParagraph('');
-
-    const s1 = body.appendParagraph('DATOS PERSONALES');
-    s1.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    body.appendParagraph('Nombre:    ' + nombre);
-    body.appendParagraph('DPI:       ' + (datos['numero_de_dpi_opcional'] || '—'));
-    body.appendParagraph('Edad:      ' + (datos['edad'] || '—'));
-    body.appendParagraph('Género:    ' + (datos['genero'] || '—'));
-    body.appendParagraph('Zona:      ' + (datos['lugar_de_residencia'] || '—'));
-    body.appendParagraph('Teléfono:  ' + (datos['numero_de_telefono'] || '—'));
-    body.appendParagraph('');
-
-    const s2 = body.appendParagraph('DIAGNÓSTICO');
-    s2.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    body.appendParagraph('Educativo:   ' + (datos['dimension_1_capital_educativo'] || 0) + '/10');
-    body.appendParagraph('Laboral:     ' + (datos['dimension_2_capital_laboral'] || 0) + '/10');
-    body.appendParagraph('Digital:     ' + (datos['dimension_3_habilidades_digitales'] || 0) + '/10');
-    body.appendParagraph('Vocacional:  ' + (datos['dimension_4_claridad_vocacional'] || 0) + '/10');
-    body.appendParagraph('Barreras:    ' + (datos['dimension_5_barreras_estructurales'] || 0) + '/10');
-    body.appendParagraph('Red Apoyo:   ' + (datos['dimension_6_red_apoyo'] || 0) + '/10');
-    body.appendParagraph('');
-
-    const s3 = body.appendParagraph('PERFIL PROFESIONAL');
-    s3.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    body.appendParagraph('Educación:         ' + (datos['cual_es_el_ultimo_grado_que_completaste'] || '—'));
-    body.appendParagraph('Situación laboral: ' + (datos['cual_es_tu_situacion_laboral_actual'] || '—'));
-    body.appendParagraph('Fortalezas:        ' + (datos['que_sabes_hacer_bien'] || '—'));
-    body.appendParagraph('Objetivo laboral:  ' + (datos['que_tipo_de_empleo_estas_buscando_especificamente'] || '—'));
-    body.appendParagraph('');
-
-    const s4 = body.appendParagraph('PLAN DE ACCIÓN');
-    s4.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    body.appendParagraph('[Definir acciones para este participante]');
-    body.appendParagraph('');
-
-    const s5 = body.appendParagraph('HISTORIAL DE CAMBIOS');
-    s5.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    body.appendParagraph('Fecha             | Campo             | Cambio                          | Usuario');
-    body.appendParagraph('─────────────────────────────────────────────────────────────────────────');
-
-    doc.saveAndClose();
-
-    return { carpetaId: carpeta.getId(), docId: doc.getId(), docUrl: 'https://docs.google.com/document/d/' + doc.getId() + '/edit' };
-  } catch(e) {
-    return { carpetaId: '', docId: '', docUrl: '' };
-  }
-}
-
-// ============================================================================
-// COLOREAR + ALERTAS DE CASOS DORMIDOS
+// COLOREAR TABLA
 // ============================================================================
 
 function colorearTabla() {
   try {
     const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
-    if (!hoja || hoja.getLastRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Sin datos');
-      return;
-    }
-    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues();
-    datos.forEach((fila, i) => colorearFila(hoja, i + 2, fila[CONFIG.COL.PERFIL - 1]));
-    SpreadsheetApp.getUi().alert('✅ Coloreado\n🟢 A  🔵 B  🟡 C  🔴 D');
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
+    if (!hoja || hoja.getLastRow() < 2) { SpreadsheetApp.getUi().alert('⚠️ Sin datos.'); return; }
+    const datos = hoja.getRange(2, 1, hoja.getLastRow()-1, CONFIG.COL.PERFIL).getValues();
+    datos.forEach((r, i) => { if (r[0]) colorearFila(hoja, i+2, r[CONFIG.COL.PERFIL-1]); });
+    SpreadsheetApp.getUi().alert('✅ Tabla coloreada\n🟢 A  🔵 B  🟡 C  🔴 D');
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
 function colorearFila(hoja, numFila, perfil) {
   const c = CONFIG.COLORES[perfil];
   const rango = hoja.getRange(numFila, 1, 1, 26);
-  if (c) {
-    rango.setBackground(c.fondo).setFontColor(c.texto);
-  } else {
-    rango.setBackground('#ffffff').setFontColor('#333333');
-  }
-}
-
-function verificarCasosDormidos() {
-  try {
-    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
-    if (!hoja || hoja.getLastRow() < 2) return;
-
-    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues();
-    const hoy = new Date();
-    const casosDormidos = [];
-
-    datos.forEach((fila, i) => {
-      if (!fila[0]) return;
-      const fechaUltimoCambio = new Date(fila[CONFIG.COL.FECHA - 1]);
-      const diasSinContacto = Math.floor((hoy - fechaUltimoCambio) / (1000 * 60 * 60 * 24));
-
-      if (diasSinContacto > 30) {
-        const numFila = i + 2;
-        hoja.getRange(numFila, 1, 1, 26).setBackground('#8b0000').setFontColor('#ffffff');
-        casosDormidos.push({
-          nombre: fila[CONFIG.COL.NOMBRE - 1],
-          dias: diasSinContacto,
-          estado: fila[CONFIG.COL.ESTADO - 1]
-        });
-      }
-    });
-
-    if (casosDormidos.length > 0) {
-      const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
-      const asunto = '🚨 Alerta: ' + casosDormidos.length + ' casos sin seguimiento';
-      let body = 'Los siguientes participantes llevan más de 30 días sin cambio de estado:\n\n';
-      casosDormidos.forEach(c => {
-        body += '👤 ' + c.nombre + ' (' + c.dias + ' días)\n   Estado: ' + c.estado + '\n\n';
-      });
-      body += 'Abre el sheet y revisa los casos marcados en rojo oscuro.\n\nPaso a Paso Sistema';
-      MailApp.sendEmail(adminEmail, asunto, body);
-    }
-  } catch(e) {
-    // Error silencioso en trigger
-  }
-}
-
-function enviarReporteSemanal() {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const hoja = ss.getSheetByName(CONFIG.HOJA);
-    if (!hoja || hoja.getLastRow() < 2) return;
-
-    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues().filter(r => r[0]);
-    const hoy = new Date();
-    const hace7dias = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const nuevos = datos.filter(r => {
-      const fecha = new Date(r[CONFIG.COL.FECHA - 1]);
-      return fecha >= hace7dias;
-    });
-
-    const criticos = datos.filter(r => r[CONFIG.COL.PRIORIDAD - 1] === 'CRÍTICO');
-    const dormidos = datos.filter(r => {
-      const diasSinContacto = Math.floor((hoy - new Date(r[CONFIG.COL.FECHA - 1])) / (1000 * 60 * 60 * 24));
-      return diasSinContacto > 30;
-    });
-
-    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
-    const asunto = '📊 Reporte semanal - Paso a Paso';
-    let body = '═════════════════════════════════════\n';
-    body += '📊 REPORTE SEMANAL - PASO A PASO\n';
-    body += '═════════════════════════════════════\n\n';
-    body += 'Semana: ' + Utilities.formatDate(hace7dias, Session.getScriptTimeZone(), 'dd/MM') + ' - ' + Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'dd/MM/yyyy') + '\n\n';
-
-    body += '✨ NUEVOS PARTICIPANTES: ' + nuevos.length + '\n';
-    nuevos.forEach(r => {
-      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' (' + r[CONFIG.COL.PERFIL - 1] + ')\n';
-    });
-
-    body += '\n🔴 CASOS CRÍTICOS: ' + criticos.length + '\n';
-    criticos.forEach(r => {
-      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' - ' + r[CONFIG.COL.ESTADO - 1] + '\n';
-    });
-
-    body += '\n⏰ PENDIENTES (30+ días): ' + dormidos.length + '\n';
-    dormidos.forEach(r => {
-      const dias = Math.floor((hoy - new Date(r[CONFIG.COL.FECHA - 1])) / (1000 * 60 * 60 * 24));
-      body += '  • ' + r[CONFIG.COL.NOMBRE - 1] + ' (' + dias + ' días sin cambio)\n';
-    });
-
-    body += '\n═════════════════════════════════════\n';
-    body += 'Total participantes: ' + datos.length + '\n';
-    body += 'Abre el sheet para ver detalles.\n\n';
-    body += 'Sistema Paso a Paso';
-
-    MailApp.sendEmail(adminEmail, asunto, body);
-  } catch(e) {
-    // Error silencioso
-  }
+  if (c) rango.setBackground(c.fondo).setFontColor(c.texto);
+  else   rango.setBackground('#ffffff').setFontColor('#333333');
 }
 
 // ============================================================================
-// HISTORIAL DE CAMBIOS
-// onEdit simple NO puede abrir Docs (sin permisos).
-// manejarEdicion() es un trigger INSTALABLE con permisos completos.
-// Se instala automáticamente al ejecutar 📥 Instalar Sistema.
+// TRIGGER DE EDICIÓN (instalable — tiene permisos para abrir Docs)
 // ============================================================================
 
-function onEdit(e) {
-  // Solo registra en Log — no abre Docs (sin permisos en trigger simple)
-  try {
-    const sheet = e.source.getActiveSheet();
-    if (sheet.getName() !== CONFIG.HOJA) return;
-    const fila = e.range.getRow();
-    const columna = e.range.getColumn();
-    if (fila < 2) return;
-    const logSheet = e.source.getSheetByName('Log');
-    if (logSheet && (e.value || e.oldValue)) {
-      logSheet.appendRow([new Date(), CONFIG.HOJA, fila, columna, e.oldValue || '', e.value || '', Session.getEffectiveUser().getEmail()]);
-    }
-  } catch(err) {}
-}
+function onEdit(e) { return; } // Vacío — manejarEdicion() es el trigger activo
 
 function manejarEdicion(e) {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('revert_lock')) return;
+
   try {
     const sheet = e.source.getActiveSheet();
     if (sheet.getName() !== CONFIG.HOJA) return;
 
-    const range = e.range;
-    const fila = range.getRow();
-    const columna = range.getColumn();
-    const valorNuevo = e.value || '';
-    const valorAnterior = e.oldValue || '';
+    const fila = e.range.getRow();
+    const col  = e.range.getColumn();
+    const valN = e.value    || '';
+    const valA = e.oldValue || '';
+    if (fila < 2 || !valN || valN === valA) return;
 
-    if (fila < 2 || !valorNuevo || valorNuevo === valorAnterior) return;
+    // Validar transición de estado
+    if (col === CONFIG.COL.ESTADO) {
+      const err = validarTransicionEstado(valA, valN);
+      if (err) {
+        cache.put('revert_lock', '1', 15);
+        sheet.getRange(fila, col).setValue(valA);
+        cache.remove('revert_lock');
+        SpreadsheetApp.getUi().alert(err);
+        return;
+      }
+    }
 
-    // Registrar en log
+    // Registrar en Log
     const logSheet = e.source.getSheetByName('Log');
     if (logSheet) {
-      const ahora = new Date();
-      const usuario = Session.getEffectiveUser().getEmail();
-      logSheet.appendRow([ahora, CONFIG.HOJA, fila, columna, valorAnterior, valorNuevo, usuario]);
+      logSheet.appendRow([new Date(), CONFIG.HOJA, fila, col, valA, valN, Session.getEffectiveUser().getEmail()]);
     }
 
-    // Sincronizar con Google Doc si la columna es un campo de datos
+    // Sincronizar con Google Doc
     const C = CONFIG.COL;
-    const COLS_SYNC = [
-      C.NOMBRE, C.DPI, C.EDAD, C.GENERO, C.TELEFONO, C.ZONA,
-      C.EDUCACION, C.LABORAL, C.FORTALEZAS, C.OBJETIVO,
-      C.PERFIL, C.PRIORIDAD, C.ESTADO
-    ];
-    if (COLS_SYNC.includes(columna)) {
+    const syncCols = [C.NOMBRE,C.DPI,C.EDAD,C.GENERO,C.TELEFONO,C.ZONA,C.EMAIL,
+                      C.EDUCACION,C.LABORAL,C.FORTALEZAS,C.OBJETIVO,C.PERFIL,C.PRIORIDAD,C.ESTADO];
+    if (syncCols.includes(col)) {
       const datos = sheet.getRange(fila, 1, 1, 26).getValues()[0];
       const docId = datos[C.DOC_ID - 1];
-      if (docId) {
-        sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior);
-      }
+      if (docId) sincronizarConDoc(docId, datos, col, valN, valA);
 
-      // Si cambió ESTADO → Calendar + Email al participante
-      if (columna === C.ESTADO) {
-        const nombre   = datos[C.NOMBRE - 1] || '';
-        const email    = datos[C.EMAIL - 1] || '';
-        const docUrl   = datos[C.DOC_URL - 1] || '';
-        crearEventoCalendario(nombre, valorNuevo, docUrl);
-        if (email) notificarParticipante(nombre, email, valorNuevo, datos);
+      if (col === C.ESTADO) {
+        crearEventoCalendario(datos[C.NOMBRE-1], valN, datos[C.DOC_URL-1]);
+        if (datos[C.EMAIL-1]) notificarParticipante(datos[C.NOMBRE-1], datos[C.EMAIL-1], valN);
       }
     }
-  } catch(e) {
-    // Fallo silencioso
+  } catch(err) {
+    cache.remove('revert_lock');
+    logError('manejarEdicion', err);
   }
 }
 
-function sincronizarConDocumento(docId, datos, columna, valorNuevo, valorAnterior) {
+function sincronizarConDoc(docId, datos, col, valN, valA) {
   try {
-    const doc = DocumentApp.openById(docId);
+    const doc  = DocumentApp.openById(docId);
     const body = doc.getBody();
-    const C = CONFIG.COL;
+    const C    = CONFIG.COL;
 
-    // Mapa: número de columna → {patrón regex, prefijo del campo en el doc}
     const mapa = {};
-    mapa[C.NOMBRE]     = { p: 'Nombre:.*',            pre: 'Nombre:    ' };
-    mapa[C.DPI]        = { p: 'DPI:.*',               pre: 'DPI:       ' };
-    mapa[C.EDAD]       = { p: 'Edad:.*',              pre: 'Edad:      ' };
-    mapa[C.GENERO]     = { p: 'Género:.*',            pre: 'Género:    ' };
-    mapa[C.TELEFONO]   = { p: 'Teléfono:.*',          pre: 'Teléfono:  ' };
-    mapa[C.ZONA]       = { p: 'Zona:.*',              pre: 'Zona:      ' };
-    mapa[C.EDUCACION]  = { p: 'Educación:.*',         pre: 'Educación:         ' };
-    mapa[C.LABORAL]    = { p: 'Situación laboral:.*', pre: 'Situación laboral: ' };
-    mapa[C.FORTALEZAS] = { p: 'Fortalezas:.*',        pre: 'Fortalezas:        ' };
-    mapa[C.OBJETIVO]   = { p: 'Objetivo laboral:.*',  pre: 'Objetivo laboral:  ' };
+    mapa[C.NOMBRE]     = { p:'Nombre:.*',            pre:'Nombre:            ' };
+    mapa[C.DPI]        = { p:'DPI:.*',               pre:'DPI:               ' };
+    mapa[C.EDAD]       = { p:'Edad:.*',              pre:'Edad:              ' };
+    mapa[C.GENERO]     = { p:'Género:.*',            pre:'Género:            ' };
+    mapa[C.TELEFONO]   = { p:'Teléfono:.*',          pre:'Teléfono:          ' };
+    mapa[C.ZONA]       = { p:'Zona:.*',              pre:'Zona:              ' };
+    mapa[C.EMAIL]      = { p:'Email:.*',             pre:'Email:             ' };
+    mapa[C.EDUCACION]  = { p:'Educación:.*',         pre:'Educación:         ' };
+    mapa[C.LABORAL]    = { p:'Situación laboral:.*', pre:'Situación laboral: ' };
+    mapa[C.FORTALEZAS] = { p:'Fortalezas:.*',        pre:'Fortalezas:        ' };
+    mapa[C.OBJETIVO]   = { p:'Objetivo laboral:.*',  pre:'Objetivo laboral:  ' };
+    mapa[C.PERFIL]     = { p:'Perfil:.*',            pre:'Perfil:            ' };
+    mapa[C.PRIORIDAD]  = { p:'Prioridad:.*',         pre:'Prioridad:         ' };
 
-    // Reemplazar el campo correspondiente
-    const campo = mapa[columna];
-    if (campo) {
-      body.replaceText(campo.p, campo.pre + (valorNuevo || '—'));
-    }
+    const campo = mapa[col];
+    if (campo) body.replaceText(campo.p, campo.pre + (valN || '—'));
+    if (col === C.NOMBRE && valN) doc.setName('Perfil — ' + valN);
 
-    // Para PERFIL o PRIORIDAD, actualizar la línea de encabezado ID | Perfil | Prioridad
-    if (columna === C.PERFIL || columna === C.PRIORIDAD) {
-      const id = datos[C.ID - 1] || '';
-      const perfil = datos[C.PERFIL - 1] || '—';
-      const prioridad = datos[C.PRIORIDAD - 1] || '—';
-      body.replaceText('ID: .*\\|.*Prioridad:.*', 'ID: ' + id + '   |   Perfil: ' + perfil + '   |   Prioridad: ' + prioridad);
-    }
+    const ts     = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const user   = Session.getEffectiveUser().getEmail().split('@')[0];
+    const nombres = {[C.NOMBRE]:'Nombre',[C.DPI]:'DPI',[C.EDAD]:'Edad',[C.GENERO]:'Género',
+                     [C.TELEFONO]:'Teléfono',[C.ZONA]:'Zona',[C.EMAIL]:'Email',
+                     [C.EDUCACION]:'Educación',[C.LABORAL]:'Situación Laboral',
+                     [C.FORTALEZAS]:'Fortalezas',[C.OBJETIVO]:'Objetivo',
+                     [C.PERFIL]:'Perfil',[C.PRIORIDAD]:'Prioridad',[C.ESTADO]:'Estado'};
+    const linea  = ts + ' | ' + String(nombres[col]||'Campo').padEnd(18) + ' | ' +
+                   String(valA||'—').substring(0,28).padEnd(28) + ' → ' +
+                   String(valN||'—').substring(0,18) + ' | ' + user;
 
-    // Si cambió NOMBRE también actualizar título del documento
-    if (columna === C.NOMBRE && valorNuevo) {
-      doc.setName('Perfil - ' + valorNuevo);
-    }
-
-    // Registrar en sección HISTORIAL del documento
-    const fechaHora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
-    const usuario = Session.getEffectiveUser().getEmail().split('@')[0];
-    const nombreCampo = getNombreCampo(columna);
-    const lineaLog = fechaHora + ' | ' + nombreCampo.padEnd(17) + ' | ' + (valorAnterior || '—').toString().substring(0, 30).padEnd(31) + ' → ' + (valorNuevo || '—').toString().substring(0, 20) + ' | ' + usuario;
-
-    if (body.getText().includes('HISTORIAL DE CAMBIOS')) {
-      body.appendParagraph(lineaLog);
-    }
-
+    if (body.getText().includes('HISTORIAL DE CAMBIOS')) body.appendParagraph(linea);
     doc.saveAndClose();
-  } catch(e) {
-    // Error silencioso - doc puede haber sido movido o eliminado
-  }
-}
-
-function getNombreCampo(columna) {
-  const C = CONFIG.COL;
-  const n = {};
-  n[C.NOMBRE] = 'Nombre'; n[C.DPI] = 'DPI'; n[C.EDAD] = 'Edad';
-  n[C.GENERO] = 'Género'; n[C.TELEFONO] = 'Teléfono'; n[C.ZONA] = 'Zona';
-  n[C.EDUCACION] = 'Educación'; n[C.LABORAL] = 'Situación Laboral';
-  n[C.FORTALEZAS] = 'Fortalezas'; n[C.OBJETIVO] = 'Objetivo';
-  n[C.PERFIL] = 'Perfil'; n[C.PRIORIDAD] = 'Prioridad'; n[C.ESTADO] = 'Estado';
-  return n[columna] || 'Campo ' + columna;
+  } catch(e) {}
 }
 
 // ============================================================================
-// DERIVACIONES
-// ============================================================================
-
-function abrirFormDerivacion() {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const hoja = ss.getSheetByName(CONFIG.HOJA);
-    if (!hoja || hoja.getLastRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona un participante primero');
-      return;
-    }
-
-    const range = ss.getActiveRange();
-    if (range.getRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de participante');
-      return;
-    }
-
-    const datos = hoja.getRange(range.getRow(), 1, 1, 26).getValues()[0];
-    const participanteID = datos[0] || '';
-    const participanteNombre = datos[CONFIG.COL.NOMBRE - 1] || '';
-
-    if (!participanteID) {
-      SpreadsheetApp.getUi().alert('⚠️ Participante sin ID');
-      return;
-    }
-
-    const html = HtmlService.createHtmlOutput(
-      '<style>body{font-family:Arial;padding:16px;background:#f5f5f5;font-size:13px}' +
-      'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
-      'input,textarea,select{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:12px}' +
-      'textarea{height:80px;resize:vertical}' +
-      'button{margin-top:14px;background:#1f73e6;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold}' +
-      '.info{background:#e3f2fd;color:#1565c0;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px}' +
-      '</style>' +
-      '<div class="info">📋 Derivación de: <strong>' + participanteNombre + '</strong></div>' +
-      '<label>Organización destino:</label>' +
-      '<select id="org"><option>Selecciona...</option><option>Otro programa Creamos</option><option>Entidad pública</option><option>ONG externa</option><option>Sector privado</option><option>Otra</option></select>' +
-      '<label>Motivo de la derivación:</label>' +
-      '<textarea id="motivo" placeholder="Razón por la que se derivó..."></textarea>' +
-      '<label>Resultado esperado:</label>' +
-      '<textarea id="resultado" placeholder="Qué se espera lograr..."></textarea>' +
-      '<button onclick="guardarDer()">➡️ Registrar Derivación</button>' +
-      '<script>function guardarDer(){var o=document.getElementById(\'org\').value,m=document.getElementById(\'motivo\').value,r=document.getElementById(\'resultado\').value;if(o==="Selecciona..."||!m||!r){alert("Completa todos los campos");return;}google.script.run.guardarDerivacion("' + participanteID + '","' + participanteNombre + '",o,m,r);alert("✅ Derivación registrada");google.script.host.close();}</script>'
-    );
-
-    SpreadsheetApp.getUi().showSidebar(html);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
-}
-
-function guardarDerivacion(id, nombre, organizacion, motivo, resultado) {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const sheet = ss.getSheetByName('Derivaciones');
-    if (!sheet) return;
-
-    sheet.appendRow([
-      new Date(),
-      id,
-      nombre,
-      organizacion,
-      motivo,
-      resultado,
-      '',
-      ''
-    ]);
-  } catch(e) {
-    // Error silencioso
-  }
-}
-
-// ============================================================================
-// DASHBOARD AUTOMÁTICO
+// DASHBOARD
 // ============================================================================
 
 function abrirDashboard() {
   try {
     actualizarDashboard();
-    const ss = SpreadsheetApp.getActive();
-    ss.setActiveSheet(ss.getSheetByName('Dashboard'));
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
+    SpreadsheetApp.getActive().setActiveSheet(SpreadsheetApp.getActive().getSheetByName('Dashboard'));
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
 function actualizarDashboard() {
   try {
-    const ss = SpreadsheetApp.getActive();
+    const ss   = SpreadsheetApp.getActive();
     const hoja = ss.getSheetByName(CONFIG.HOJA);
     const dash = ss.getSheetByName('Dashboard');
     if (!hoja || !dash) return;
 
     dash.clear();
+    const M    = CONFIG.COL;
+    const tz   = Session.getScriptTimeZone();
+    const datos = hoja.getLastRow() > 1
+      ? hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues().filter(r => r[0])
+      : [];
 
-    // Título
-    dash.appendRow(['DASHBOARD - PASO A PASO']);
-    dash.getRange(1, 1).setFontSize(16).setFontWeight('bold').setFontColor('#1f73e6');
+    const addFila = (a, b, bg, fg) => {
+      dash.appendRow([a, b === undefined ? '' : b]);
+      if (bg) dash.getRange(dash.getLastRow(),1,1,2).setBackground(bg);
+      if (fg) dash.getRange(dash.getLastRow(),1,1,2).setFontColor(fg);
+    };
+    const addTit = (txt) => {
+      dash.appendRow([txt]);
+      dash.getRange(dash.getLastRow(),1).setFontWeight('bold').setFontColor('#1a237e').setFontSize(12);
+    };
 
-    // Fecha de actualización
-    const ahora = new Date();
-    dash.appendRow(['Actualizado: ' + Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')]);
-    dash.appendRow(['']);
-
-    // Datos
-    const datos = hoja.getRange(2, 1, Math.max(hoja.getLastRow() - 1, 0), 26).getValues().filter(r => r[0]);
+    // Encabezado
+    dash.appendRow(['📊 DASHBOARD — PASO A PASO', '', '', 'Actualizado: ' + Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm')]);
+    dash.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#1a237e');
+    dash.getRange(1,4).setFontColor('#9e9e9e').setFontSize(10);
+    dash.appendRow([]);
 
     // Resumen
-    dash.appendRow(['RESUMEN GENERAL']);
-    dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    dash.appendRow(['Total de participantes', datos.length]);
-    dash.appendRow(['']);
+    addTit('📋 RESUMEN');
+    addFila('Total participantes', datos.length);
+    dash.appendRow([]);
 
-    // Por perfil — normaliza valores de Kobo antes de contar
-    dash.appendRow(['POR PERFIL']);
-    dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    const perfiles = { 'Perfil A': 0, 'Perfil B': 0, 'Perfil C': 0, 'Perfil D': 0, 'Sin perfil': 0 };
-    datos.forEach(r => {
-      const p = normalizarPerfil(r[CONFIG.COL.PERFIL - 1]) || 'Sin perfil';
-      perfiles[p] = (perfiles[p] || 0) + 1;
-    });
-    Object.entries(perfiles).forEach(([k, v]) => {
-      dash.appendRow([k, v]);
-      colorearFilaDash(dash, dash.getLastRow(), k);
-    });
-    dash.appendRow(['']);
+    // Por perfil
+    addTit('🎯 POR PERFIL');
+    const pc = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
+    datos.forEach(r => { const p = normalizarPerfil(r[M.PERFIL-1]); pc[p] = (pc[p]||0)+1; });
+    addFila('🟢 Perfil A — Listo para empleo',      pc['Perfil A'], '#d9ead3','#274e13');
+    addFila('🔵 Perfil B — Orientación vocacional',  pc['Perfil B'], '#cfe2f3','#1c4587');
+    addFila('🟡 Perfil C — Desarrollo de capacidades',pc['Perfil C'],'#fff2cc','#7f6000');
+    addFila('🔴 Perfil D — Barreras críticas',       pc['Perfil D'], '#f4cccc','#660000');
+    addFila('⬜ Sin perfil asignado',                pc['Sin perfil']||0);
+    dash.appendRow([]);
 
     // Por estado
-    dash.appendRow(['POR ESTADO']);
-    dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    const estados = {};
-    datos.forEach(r => {
-      const e = r[CONFIG.COL.ESTADO - 1] || 'Sin estado';
-      estados[e] = (estados[e] || 0) + 1;
-    });
-    Object.entries(estados).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
-      dash.appendRow([k, v]);
-    });
-    dash.appendRow(['']);
+    addTit('📌 POR ESTADO');
+    const est = {};
+    datos.forEach(r => { const e = r[M.ESTADO-1]||'Sin estado'; est[e]=(est[e]||0)+1; });
+    Object.entries(est).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => addFila(k, v));
+    dash.appendRow([]);
 
-    // Por prioridad — normaliza valores de Kobo antes de contar
-    dash.appendRow(['POR PRIORIDAD']);
-    dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    const prioridades = { 'CRÍTICO': 0, 'ALTO': 0, 'MEDIO': 0, 'BAJO': 0 };
-    datos.forEach(r => {
-      const p = normalizarPrioridad(r[CONFIG.COL.PRIORIDAD - 1]) || 'Sin prioridad';
-      prioridades[p] = (prioridades[p] || 0) + 1;
-    });
-    [['CRÍTICO','#ffcdd2'], ['ALTO','#ffe0b2'], ['MEDIO','#fff9c4'], ['BAJO','#c8e6c9']].forEach(([k, color]) => {
-      dash.appendRow([k, prioridades[k] || 0]);
-      dash.getRange(dash.getLastRow(), 1, 1, 2).setBackground(color);
-    });
-    dash.appendRow(['']);
+    // Puntajes
+    addTit('📈 PUNTAJE DIAGNÓSTICO');
+    const pts = datos.map(r=>Number(r[M.PUNTAJE-1])).filter(v=>v>0);
+    const prom = pts.length ? Math.round(pts.reduce((a,b)=>a+b,0)/pts.length) : 0;
+    const maxP = pts.reduce((a,b)=>b>a?b:a,0);
+    const minP = pts.length ? pts.reduce((a,b)=>b<a?b:a,pts[0]) : 0;
+    addFila('Promedio', prom + ' / 60');
+    addFila('Máximo',   pts.length ? maxP : '—');
+    addFila('Mínimo',   pts.length ? minP : '—');
 
-    // Puntaje promedio
-    dash.appendRow(['DIAGNÓSTICO']);
-    dash.getRange(dash.getLastRow(), 1).setFontWeight('bold').setFontColor('#1f73e6');
-    const puntajes = datos.map(r => Number(r[CONFIG.COL.PUNTAJE - 1])).filter(n => n > 0);
-    const prom = puntajes.length ? Math.round(puntajes.reduce((a, b) => a + b, 0) / puntajes.length) : 0;
-    dash.appendRow(['Puntaje promedio', prom + ' / 60']);
-    dash.appendRow(['Máximo', Math.max(...puntajes) || 0]);
-    dash.appendRow(['Mínimo', Math.min(...puntajes) || 0]);
-
-    // Ancho de columnas
-    dash.setColumnWidth(1, 250);
-    dash.setColumnWidth(2, 100);
-  } catch(e) {
-    // Error silencioso
-  }
-}
-
-function colorearFilaDash(sheet, fila, perfil) {
-  const c = CONFIG.COLORES[perfil];
-  if (c) {
-    sheet.getRange(fila, 1, 1, 2).setBackground(c.fondo).setFontColor(c.texto);
-  }
-}
-
-// ============================================================================
-// VER FICHA
-// ============================================================================
-
-function verFicha() {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const rango = ss.getActiveRange();
-    const hoja = rango.getSheet();
-
-    if (hoja.getName() !== CONFIG.HOJA) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila en Maestro');
-      return;
-    }
-    if (rango.getRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de datos');
-      return;
-    }
-
-    const datos = hoja.getRange(rango.getRow(), 1, 1, 26).getValues()[0];
-    if (!datos[0]) {
-      SpreadsheetApp.getUi().alert('⚠️ Fila vacía');
-      return;
-    }
-
-    mostrarFicha(datos);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
-}
-
-function mostrarFicha(datos) {
-  const C = CONFIG.COL;
-  const nombre     = datos[C.NOMBRE - 1]     || '—';
-  const dpi        = datos[C.DPI - 1]        || '—';
-  const edad       = datos[C.EDAD - 1]       || '—';
-  const genero     = datos[C.GENERO - 1]     || '—';
-  const telefono   = datos[C.TELEFONO - 1]   || '—';
-  const zona       = datos[C.ZONA - 1]       || '—';
-  const perfil     = datos[C.PERFIL - 1]     || '—';
-  const prioridad  = datos[C.PRIORIDAD - 1]  || '—';
-  const puntaje    = datos[C.PUNTAJE - 1]    || 0;
-  const estado     = datos[C.ESTADO - 1]     || 'Orientación';
-  const objetivo   = datos[C.OBJETIVO - 1]   || '—';
-  const fortalezas = datos[C.FORTALEZAS - 1] || '—';
-  const docUrl     = datos[C.DOC_URL - 1]    || '';
-  const d = [C.DIM1,C.DIM2,C.DIM3,C.DIM4,C.DIM5,C.DIM6].map(k => Number(datos[k-1]) || 0);
-
-  const c    = CONFIG.COLORES[perfil] || { fondo: '#f5f5f5', texto: '#333' };
-  const cP   = prioridad === 'CRÍTICO' ? '#c62828' : prioridad === 'ALTO' ? '#e65100' : prioridad === 'MEDIO' ? '#f9a825' : '#388e3c';
-  const ini  = nombre.split(' ').slice(0,2).map(p => p[0]||'').join('').toUpperCase();
-  const docBtn = docUrl ? '<a href="' + docUrl + '" target="_blank" style="display:block;text-align:center;background:#1f73e6;color:#fff;padding:8px;border-radius:4px;margin:10px 0 0;text-decoration:none;font-size:12px;font-weight:bold">📄 Abrir Expediente en Drive</a>' : '';
-
-  const html = HtmlService.createHtmlOutput(
-    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-    '*{margin:0;padding:0;box-sizing:border-box}' +
-    'body{font-family:Arial;font-size:13px;background:#f8f9fa;color:#333;overflow-y:auto}' +
-    '.hdr{background:' + c.fondo + ';padding:16px;border-bottom:3px solid ' + c.texto + ';display:flex;gap:12px;align-items:center}' +
-    '.av{width:60px;height:60px;border-radius:50%;background:' + c.texto + ';color:#fff;font-size:20px;font-weight:bold;display:flex;align-items:center;justify-content:center}' +
-    '.nom{font-size:15px;font-weight:bold;color:' + c.texto + '}' +
-    '.bdg{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}' +
-    '.b{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold;border:1.5px solid ' + c.texto + ';color:' + c.texto + '}' +
-    '.bp{background:' + cP + ';border-color:' + cP + ';color:#fff}' +
-    '.be{background:#fff;color:#777}' +
-    '.pts{text-align:center;padding:12px;background:#fff;border-bottom:1px solid #eee}' +
-    '.pn{font-size:32px;font-weight:bold;color:' + c.texto + '}' +
-    '.sec{padding:12px 14px;background:#fff;border-bottom:1px solid #eee}' +
-    '.st{font-size:10px;font-weight:bold;color:#999;text-transform:uppercase;margin-bottom:8px}' +
-    '.row{display:flex;justify-content:space-between;padding:4px 0}' +
-    '.desc{color:#555;line-height:1.5}' +
-    '</style></head><body>' +
-    '<div class="hdr"><div class="av">' + ini + '</div>' +
-    '<div><div class="nom">' + nombre + '</div>' +
-    '<div class="bdg"><span class="b">' + perfil + '</span>' +
-    '<span class="b bp">' + prioridad + '</span>' +
-    '<span class="b be">' + estado + '</span></div></div></div>' +
-    '<div class="pts"><div class="pn">' + puntaje + '<span style="font-size:14px;color:#aaa">/60</span></div></div>' +
-    '<div class="sec"><div class="st">Datos Personales</div>' +
-    '<div class="row"><span>DPI</span><span>' + dpi + '</span></div>' +
-    '<div class="row"><span>Edad</span><span>' + edad + '</span></div>' +
-    '<div class="row"><span>Género</span><span>' + genero + '</span></div>' +
-    '<div class="row"><span>Teléfono</span><span>' + telefono + '</span></div>' +
-    '<div class="row"><span>Zona</span><span>' + zona + '</span></div></div>' +
-    '<div class="sec"><div class="st">Objetivo</div><div class="desc">' + objetivo + '</div></div>' +
-    '<div class="sec"><div class="st">Fortalezas</div><div class="desc">' + fortalezas + '</div></div>' +
-    '<div class="sec"><div class="st">Dimensiones</div>' +
-    '<div style="display:flex;justify-content:center;padding:8px 0">' + svgRadar(d, c.texto) + '</div>' +
-    svgBarras(d, c.texto) + docBtn + '</div></body></html>'
-  );
-
-  SpreadsheetApp.getUi().showSidebar(html);
-}
-
-// ============================================================================
-// ESTADÍSTICAS
-// ============================================================================
-
-function verEstadisticas() {
-  try {
-    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
-    if (!hoja || hoja.getLastRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Sin datos');
-      return;
-    }
-
-    const datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues().filter(r => r[0]);
-    const total = datos.length;
-    const pA = datos.filter(r => r[CONFIG.COL.PERFIL-1] === 'Perfil A').length;
-    const pB = datos.filter(r => r[CONFIG.COL.PERFIL-1] === 'Perfil B').length;
-    const pC = datos.filter(r => r[CONFIG.COL.PERFIL-1] === 'Perfil C').length;
-    const pD = datos.filter(r => r[CONFIG.COL.PERFIL-1] === 'Perfil D').length;
-    const criticos = datos.filter(r => r[CONFIG.COL.PRIORIDAD-1] === 'CRÍTICO').length;
-    const puntajes = datos.map(r => Number(r[CONFIG.COL.PUNTAJE-1])).filter(n => n > 0);
-    const prom = puntajes.length ? Math.round(puntajes.reduce((a,b) => a+b, 0) / puntajes.length) : 0;
-
-    const html = HtmlService.createHtmlOutput(
-      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-      'body{font-family:Arial;padding:16px;background:#f8f9fa;font-size:13px}' +
-      'h2{color:#1f73e6;margin-bottom:14px;font-size:15px}' +
-      '.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px}' +
-      '.big{font-size:40px;font-weight:bold;color:#1f73e6;text-align:center}' +
-      '.pill{display:inline-block;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:bold;margin:2px}' +
-      '.pA{background:#d9ead3;color:#274e13}.pB{background:#cfe2f3;color:#1c4587}' +
-      '.pC{background:#fff2cc;color:#7f6000}.pD{background:#f4cccc;color:#660000}' +
-      '</style></head><body>' +
-      '<h2>📊 Estadísticas</h2>' +
-      '<div class="card"><div class="big">' + total + '</div><div style="text-align:center;color:#999;font-size:11px;margin-top:4px">Participantes</div></div>' +
-      '<div class="card"><div class="big" style="font-size:20px;text-align:left">Por Perfil</div>' +
-      '<span class="pill pA">A: ' + pA + '</span>' +
-      '<span class="pill pB">B: ' + pB + '</span>' +
-      '<span class="pill pC">C: ' + pC + '</span>' +
-      '<span class="pill pD">D: ' + pD + '</span></div>' +
-      '<div class="card"><div class="big" style="font-size:20px;text-align:left;margin-bottom:8px">Prioridad Alta</div>' +
-      '<div style="color:#c62828;font-size:28px;font-weight:bold">🔴 ' + criticos + ' Críticos</div></div>' +
-      '<div class="card"><div class="big" style="font-size:20px;text-align:left;margin-bottom:4px">Puntaje Promedio</div>' +
-      '<div style="font-size:28px;font-weight:bold;color:#555">' + prom + ' <span style="font-size:14px;color:#aaa">/60</span></div></div>' +
-      '</body></html>'
-    );
-
-    SpreadsheetApp.getUi().showSidebar(html);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
-}
-
-// ============================================================================
-// PROBAR KOBO
-// ============================================================================
-
-function probarKobo() {
-  try {
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
-    const resp = UrlFetchApp.fetch(
-      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/',
-      { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
-    );
-    if (resp.getResponseCode() === 200) {
-      const n = JSON.parse(resp.getContentText()).deployment__submission_count || 0;
-      SpreadsheetApp.getUi().alert('✅ Conexión OK\n\n📊 ' + n + ' respuestas en Kobo');
-    } else {
-      SpreadsheetApp.getUi().alert('❌ Error ' + resp.getResponseCode());
-    }
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
-}
-
-// ============================================================================
-// DIAGNÓSTICO KOBO — ver campos reales del formulario
-// ============================================================================
-
-function diagnosticarCamposKobo() {
-  try {
-    const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
-    const resp = UrlFetchApp.fetch(
-      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
-      { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
-    );
-
-    if (resp.getResponseCode() !== 200) {
-      SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode() + '\n\n' + resp.getContentText().substring(0, 300));
-      return;
-    }
-
-    const data = JSON.parse(resp.getContentText());
-    const registros = data.results || [];
-
-    if (!registros.length) {
-      SpreadsheetApp.getUi().alert('⚠️ No hay respuestas en Kobo todavía.');
-      return;
-    }
-
-    const r = registros[0];
-    const campos = Object.keys(r).sort();
-
-    // Campos que el sistema espera
-    const esperados = {
-      'nombre': 'nombre_completo_del_la_participante',
-      'dpi': 'numero_de_dpi_opcional',
-      'edad': 'edad',
-      'genero': 'genero',
-      'telefono': 'numero_de_telefono',
-      'zona': 'lugar_de_residencia',
-      'email': 'correo_electronico_opcional',
-      'educacion': 'cual_es_el_ultimo_grado_que_completaste',
-      'laboral': 'cual_es_tu_situacion_laboral_actual',
-      'fortalezas': 'que_sabes_hacer_bien',
-      'objetivo': 'que_tipo_de_empleo_estas_buscando_especificamente',
-      'perfil': 'perfil_asignado',
-      'prioridad': 'prioridad_caso',
-      'puntaje': 'puntaje_total_60',
-      'dim1': 'dimension_1_capital_educativo',
-      'dim2': 'dimension_2_capital_laboral',
-      'dim3': 'dimension_3_habilidades_digitales',
-      'dim4': 'dimension_4_claridad_vocacional',
-      'dim5': 'dimension_5_barreras_estructurales',
-      'dim6': 'dimension_6_red_apoyo'
-    };
-
-    let filasCampos = '';
-    campos.forEach(k => {
-      const val = String(r[k] || '').substring(0, 60);
-      const esSistema = Object.values(esperados).includes(k);
-      const bg = esSistema ? '#e8f5e9' : '#fff';
-      const mark = esSistema ? ' ✅' : '';
-      filasCampos += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + k + mark + '</td><td style="padding:3px 6px;font-size:10px;color:#555;max-width:160px;overflow:hidden;white-space:nowrap">' + val + '</td></tr>';
-    });
-
-    let filasEsperados = '';
-    Object.entries(esperados).forEach(([campo, clave]) => {
-      const presente = clave in r;
-      const valor = presente ? String(r[clave]).substring(0, 40) : '⚠️ CAMPO NO ENCONTRADO';
-      const bg = presente ? '#e8f5e9' : '#ffcdd2';
-      filasEsperados += '<tr style="background:' + bg + '"><td style="padding:3px 6px;font-size:10px;font-weight:bold">' + campo + '</td><td style="padding:3px 6px;font-size:10px;font-family:monospace;color:#1a237e">' + clave + '</td><td style="padding:3px 6px;font-size:10px">' + valor + '</td></tr>';
-    });
-
-    const html = HtmlService.createHtmlOutput(
-      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-      'body{font-family:Arial;font-size:12px;padding:10px;background:#f8f9fa}' +
-      'h3{color:#1f73e6;margin:10px 0 6px;font-size:13px}' +
-      'table{border-collapse:collapse;width:100%;margin-bottom:14px}' +
-      'td{border:1px solid #e0e0e0;vertical-align:top}' +
-      '.ok{color:#2e7d32;font-weight:bold}.miss{color:#c62828;font-weight:bold}' +
-      '</style></head><body>' +
-      '<h3>🔍 Diagnóstico de Campos Kobo</h3>' +
-      '<p style="font-size:11px;color:#666;margin-bottom:8px">1 registro analizado. ✅ = campo usado por el sistema</p>' +
-      '<h3>Campos que el sistema espera:</h3>' +
-      '<table><tr><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Campo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Clave Kobo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Valor encontrado</th></tr>' +
-      filasEsperados + '</table>' +
-      '<h3>Todos los campos disponibles en Kobo:</h3>' +
-      '<table><tr><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Campo Kobo</th><th style="padding:4px 6px;background:#37474f;color:#fff;font-size:10px">Valor</th></tr>' +
-      filasCampos + '</table>' +
-      '</body></html>'
-    ).setWidth(500).setTitle('Diagnóstico Kobo');
-
-    SpreadsheetApp.getUi().showSidebar(html);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
-}
-
-// ============================================================================
-// CONFIGURACIÓN
-// ============================================================================
-
-function abrirConfiguracion() {
-  const apiKey = PropertiesService.getUserProperties().getProperty('KOBO_API_KEY') || CONFIG.KOBO_API_KEY;
-  const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-  const email = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
-
-  const html = HtmlService.createHtmlOutput(
-    '<style>body{font-family:Arial;padding:16px;background:#f5f5f5;font-size:13px}' +
-    'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
-    'input,textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:11px}' +
-    'textarea{height:80px;resize:vertical}' +
-    'button{margin-top:14px;background:#1f73e6;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold}' +
-    '.info{background:#e8f5e9;color:#2e7d32;padding:10px;border-radius:4px;margin-bottom:12px;font-size:12px}' +
-    '</style>' +
-    '<div class="info">⚙️ Configuración del sistema</div>' +
-    '<label>Email para alertas:</label>' +
-    '<input id="email" value="' + email + '">' +
-    '<label>ID Carpeta Drive:</label>' +
-    '<input id="cid" value="' + folderId + '">' +
-    '<label>API Key Kobo:</label>' +
-    '<textarea id="key">' + apiKey + '</textarea>' +
-    '<button onclick="var e=document.getElementById(\'email\').value.trim(),c=document.getElementById(\'cid\').value.trim(),k=document.getElementById(\'key\').value.trim();if(!e||!c||!k){alert(\'Completa todos\');return;}google.script.run.guardarConfig(e,c,k);alert(\'✅ Guardado\')">💾 Guardar</button>'
-  );
-  SpreadsheetApp.getUi().showSidebar(html);
-}
-
-function guardarConfig(email, carpeta, apiKey) {
-  PropertiesService.getUserProperties()
-    .setProperty('ADMIN_EMAIL', email)
-    .setProperty('FOLDER_ID', carpeta)
-    .setProperty('KOBO_API_KEY', apiKey);
-}
-
-// ============================================================================
-// SVG
-// ============================================================================
-
-function svgRadar(dims, color) {
-  const cx = 85, cy = 85, r = 65;
-  const ang = [-90, -30, 30, 90, 150, 210];
-  const lbs = ['Educ', 'Labor', 'Digit', 'Vocal', 'Barr', 'Apoyo'];
-
-  let fnd = '';
-  [0.33, 0.66, 1].forEach(n => {
-    const pts = ang.map(a => {
-      const rad = a * Math.PI / 180;
-      return (cx + r*n*Math.cos(rad)).toFixed(1) + ',' + (cy + r*n*Math.sin(rad)).toFixed(1);
-    }).join(' ');
-    fnd += '<polygon points="' + pts + '" fill="none" stroke="#e0e0e0" stroke-width="1"/>';
-  });
-
-  const ejes = ang.map(a => {
-    const rad = a * Math.PI / 180;
-    return '<line x1="' + cx + '" y1="' + cy + '" x2="' + (cx+r*Math.cos(rad)).toFixed(1) + '" y2="' + (cy+r*Math.sin(rad)).toFixed(1) + '" stroke="#e0e0e0" stroke-width="1"/>';
-  }).join('');
-
-  const dpts = ang.map((a,i) => {
-    const rad = a * Math.PI / 180, esc = dims[i]/10;
-    return (cx+r*esc*Math.cos(rad)).toFixed(1) + ',' + (cy+r*esc*Math.sin(rad)).toFixed(1);
-  }).join(' ');
-
-  const lbls = ang.map((a,i) => {
-    const rad = a * Math.PI / 180;
-    return '<text x="' + (cx+(r+14)*Math.cos(rad)).toFixed(1) + '" y="' + (cy+(r+14)*Math.sin(rad)).toFixed(1) + '" text-anchor="middle" font-size="8" fill="#777">' + lbs[i] + '</text>';
-  }).join('');
-
-  return '<svg width="170" height="170" viewBox="0 0 170 170">' + fnd + ejes + '<polygon points="' + dpts + '" fill="' + color + '33" stroke="' + color + '" stroke-width="2"/>' + lbls + '</svg>';
-}
-
-function svgBarras(dims, color) {
-  const lbs = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
-  return dims.map((v,i) => {
-    const pct = Math.round((v/10)*100);
-    return '<div style="margin:5px 0"><div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px"><span>' + lbs[i] + '</span><span>' + v + '/10</span></div><div style="background:#eee;border-radius:3px;height:6px"><div style="width:' + pct + '%;background:' + color + ';height:6px"></div></div></div>';
-  }).join('');
-}
-
-// ============================================================================
-// DERIVACIONES AUTOMÁTICAS
-// ============================================================================
-
-function registrarDerivacionesAutomaticas(ss, id, nombre, fila, datosKobo) {
-  try {
-    const deriv = ss.getSheetByName('Derivaciones');
-    if (!deriv) return;
-
-    const perfil    = fila[CONFIG.COL.PERFIL - 1] || '';
-    const prioridad = fila[CONFIG.COL.PRIORIDAD - 1] || '';
-    const dimBarreras = Number(fila[CONFIG.COL.DIM5 - 1]) || 0;
-    const dimDigital  = Number(fila[CONFIG.COL.DIM3 - 1]) || 0;
-    const dimEducativo = Number(fila[CONFIG.COL.DIM1 - 1]) || 0;
-    const dimApoyo    = Number(fila[CONFIG.COL.DIM6 - 1]) || 0;
-    const fecha = new Date();
-
-    const agregarDerivacion = (tipo, destino, motivo) => {
-      deriv.appendRow([fecha, id, nombre, tipo, destino, motivo, 'Pendiente', '', '', '']);
-      const ultima = deriv.getLastRow();
-      const color = tipo === '🚨 URGENTE' ? '#ffcdd2' : '#fff9c4';
-      deriv.getRange(ultima, 1, 1, 10).setBackground(color);
-    };
-
-    // PERFIL D → Derivaciones urgentes
-    if (perfil === 'Perfil D' || prioridad === 'CRÍTICO') {
-      agregarDerivacion('🚨 URGENTE', 'Creamos Voces (Apoyo Emocional)', 'Barreras críticas detectadas - Perfil ' + perfil);
-      if (dimBarreras <= 4) {
-        agregarDerivacion('🚨 URGENTE', 'Servicios Profesionales (Legal/Salud)', 'Dimensión barreras estructurales crítica: ' + dimBarreras + '/10');
-      }
-      enviarAlertaBarrerasCriticas(id, nombre, perfil, dimBarreras);
-    }
-
-    // PERFIL B → Mentoría vocacional
-    if (perfil === 'Perfil B') {
-      agregarDerivacion('💡 SUGERIDA', 'Mentoría Vocacional (Fito)', 'No reconoce su valor/habilidades - Requiere 3-6 sesiones');
-    }
-
-    // PERFIL C → Formación y educación
-    if (perfil === 'Perfil C') {
-      if (dimEducativo <= 4) {
-        agregarDerivacion('💡 SUGERIDA', 'Educación de Adultos', 'Capital educativo bajo: ' + dimEducativo + '/10');
-      }
-      if (dimDigital <= 4) {
-        agregarDerivacion('💡 SUGERIDA', 'Alfabetización Digital', 'Habilidades digitales bajas: ' + dimDigital + '/10');
-      }
-      agregarDerivacion('💡 SUGERIDA', 'Formación Técnica', 'Desarrollo de capital humano requerido');
-    }
-
-    // Barreras críticas sin importar perfil
-    if (dimBarreras <= 3 && perfil !== 'Perfil D') {
-      agregarDerivacion('⚠️ ALERTA', 'Creamos Voces (Apoyo Emocional)', 'Barreras estructurales muy bajas: ' + dimBarreras + '/10');
-    }
-
-    // Red de apoyo débil
-    if (dimApoyo <= 3) {
-      agregarDerivacion('💡 SUGERIDA', 'Grupos de Apoyo Comunitario', 'Red de apoyo débil: ' + dimApoyo + '/10');
-    }
-
-    // PERFIL A → Lista para empleo directo
-    if (perfil === 'Perfil A') {
-      agregarDerivacion('✅ OPORTUNIDAD', 'Intermediación Laboral (Bolsa de empleo)', 'Lista para empleo directo - ' + (Number(fila[CONFIG.COL.PUNTAJE - 1]) || 0) + '/60 pts');
-    }
-  } catch(e) {
-    // Error silencioso
-  }
-}
-
-function enviarAlertaBarrerasCriticas(id, nombre, perfil, dimBarreras) {
-  try {
-    const adminEmail = PropertiesService.getUserProperties().getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL;
-    const asunto = '🚨 ALERTA URGENTE: Barreras críticas — ' + nombre;
-    const body =
-      '🚨 CASO URGENTE DETECTADO EN SINCRONIZACIÓN\n' +
-      '═══════════════════════════════════════════\n\n' +
-      'Participante: ' + nombre + '\n' +
-      'ID: ' + id + '\n' +
-      'Perfil: ' + perfil + '\n' +
-      'Barreras estructurales: ' + dimBarreras + '/10\n\n' +
-      'ACCIONES REQUERIDAS:\n' +
-      '• Derivar URGENTE a Creamos Voces (Apoyo Emocional)\n' +
-      '• Derivar a Servicios Profesionales (Legal/Salud)\n' +
-      '• NO iniciar proceso de empleo hasta resolver barreras\n\n' +
-      'Abre el Sheet para ver el expediente completo.\n\n' +
-      'Sistema Paso a Paso — Alerta Automática';
-    MailApp.sendEmail(adminEmail, asunto, body);
+    dash.setColumnWidth(1,280); dash.setColumnWidth(2,120);
   } catch(e) {}
-}
-
-function verDerivaciones() {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const sheet = ss.getSheetByName('Derivaciones');
-    if (!sheet) {
-      SpreadsheetApp.getUi().alert('❌ Instala el sistema primero.');
-      return;
-    }
-    ss.setActiveSheet(sheet);
-
-    const pendientes = sheet.getLastRow() > 1
-      ? sheet.getRange(2, 7, sheet.getLastRow() - 1, 1).getValues().filter(r => r[0] === 'Pendiente').length
-      : 0;
-
-    if (pendientes > 0) {
-      SpreadsheetApp.getUi().alert('📋 Hoja Derivaciones abierta\n\n⚠️ Tienes ' + pendientes + ' derivación(es) PENDIENTE(S).\n\nCambia el Estado a "Completado" cuando las hayas gestionado.');
-    }
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
 }
 
 // ============================================================================
@@ -1215,9 +831,7 @@ function abrirAnalytics() {
     const ss = SpreadsheetApp.getActive();
     actualizarAnalytics(ss);
     ss.setActiveSheet(ss.getSheetByName('Analytics'));
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error: ' + e);
-  }
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
 function actualizarAnalytics(ss) {
@@ -1229,188 +843,705 @@ function actualizarAnalytics(ss) {
     if (!hoja || !an) return;
 
     an.clear();
-    const ahora = new Date();
-    const tz = Session.getScriptTimeZone();
-
+    const M    = CONFIG.COL;
+    const tz   = Session.getScriptTimeZone();
     const datos = hoja.getLastRow() > 1
-      ? hoja.getRange(2, 1, hoja.getLastRow() - 1, 26).getValues().filter(r => r[0])
+      ? hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues().filter(r => r[0])
       : [];
-    const total = datos.length;
 
-    // ─── Encabezado ───
-    an.appendRow(['ANALYTICS — PASO A PASO']);
-    an.getRange(1, 1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
-    an.appendRow(['Actualizado: ' + Utilities.formatDate(ahora, tz, 'dd/MM/yyyy HH:mm') + '   |   Total: ' + total + ' participantes']);
-    an.getRange(2, 1).setFontColor('#888');
-    an.appendRow([]);
-
-    const titulo = (txt, color) => {
+    const tit = (txt) => {
       an.appendRow([txt]);
-      an.getRange(an.getLastRow(), 1).setFontWeight('bold').setFontColor(color || '#6a1b9a').setFontSize(12);
+      an.getRange(an.getLastRow(),1).setFontWeight('bold').setFontColor('#6a1b9a').setFontSize(12);
     };
-    const fila2 = (a, b, bg) => {
+    const row2 = (a, b, bg, fg) => {
       an.appendRow([a, b]);
-      if (bg) an.getRange(an.getLastRow(), 1, 1, 2).setBackground(bg);
+      if (bg) an.getRange(an.getLastRow(),1,1,2).setBackground(bg);
+      if (fg) an.getRange(an.getLastRow(),1,1,2).setFontColor(fg);
     };
 
-    // ─── Perfiles ───
-    titulo('POR PERFIL');
-    const perfilesCnt = { 'Perfil A': 0, 'Perfil B': 0, 'Perfil C': 0, 'Perfil D': 0, 'Sin perfil': 0 };
-    datos.forEach(r => { const p = normalizarPerfil(r[CONFIG.COL.PERFIL-1]); perfilesCnt[p] = (perfilesCnt[p]||0)+1; });
-    fila2('🟢 Perfil A — Listo para empleo', perfilesCnt['Perfil A'], '#d9ead3');
-    fila2('🔵 Perfil B — Orientación vocacional', perfilesCnt['Perfil B'], '#cfe2f3');
-    fila2('🟡 Perfil C — Desarrollo de capacidades', perfilesCnt['Perfil C'], '#fff2cc');
-    fila2('🔴 Perfil D — Barreras críticas URGENTE', perfilesCnt['Perfil D'], '#f4cccc');
-    fila2('⬜ Sin perfil asignado', perfilesCnt['Sin perfil'] || 0);
+    // Encabezado
+    an.appendRow(['ANALYTICS — PASO A PASO']);
+    an.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
+    an.appendRow(['Actualizado: ' + Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm') +
+                  '  |  Total: ' + datos.length + ' participantes']);
+    an.getRange(2,1).setFontColor('#9e9e9e');
     an.appendRow([]);
 
-    // ─── Prioridades ───
-    titulo('POR PRIORIDAD');
-    const prioCnt = { 'CRÍTICO': 0, 'ALTO': 0, 'MEDIO': 0, 'BAJO': 0 };
-    datos.forEach(r => { const p = normalizarPrioridad(r[CONFIG.COL.PRIORIDAD-1]); prioCnt[p] = (prioCnt[p]||0)+1; });
-    fila2('🔴 CRÍTICO', prioCnt['CRÍTICO'], '#ffcdd2');
-    fila2('🟠 ALTO',    prioCnt['ALTO'],    '#ffe0b2');
-    fila2('🟡 MEDIO',   prioCnt['MEDIO'],   '#fff9c4');
-    fila2('🟢 BAJO',    prioCnt['BAJO'],    '#c8e6c9');
+    // Perfiles
+    tit('POR PERFIL');
+    const pc = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
+    datos.forEach(r => { const p = normalizarPerfil(r[M.PERFIL-1]); pc[p]=(pc[p]||0)+1; });
+    row2('🟢 Perfil A — Listo para empleo',         pc['Perfil A'], '#d9ead3','#274e13');
+    row2('🔵 Perfil B — Orientación vocacional',     pc['Perfil B'], '#cfe2f3','#1c4587');
+    row2('🟡 Perfil C — Desarrollo de capacidades',  pc['Perfil C'], '#fff2cc','#7f6000');
+    row2('🔴 Perfil D — Barreras críticas (URGENTE)',pc['Perfil D'], '#f4cccc','#660000');
+    row2('⬜ Sin perfil', pc['Sin perfil']||0);
     an.appendRow([]);
 
-    // ─── Promedios por dimensión ───
-    titulo('PROMEDIO POR DIMENSIÓN (escala 0-10)');
-    const dims = [
-      [CONFIG.COL.DIM1, '📚 Capital Educativo'],
-      [CONFIG.COL.DIM2, '💼 Capital Laboral'],
-      [CONFIG.COL.DIM3, '💻 Habilidades Digitales'],
-      [CONFIG.COL.DIM4, '🎯 Claridad Vocacional'],
-      [CONFIG.COL.DIM5, '🚧 Barreras Estructurales'],
-      [CONFIG.COL.DIM6, '🤝 Red de Apoyo']
-    ];
-    dims.forEach(([col, nombre]) => {
+    // Prioridades
+    tit('POR PRIORIDAD');
+    const prc = {'CRÍTICO':0,'ALTO':0,'MEDIO':0,'BAJO':0};
+    datos.forEach(r => { const p = normalizarPrioridad(r[M.PRIORIDAD-1]); prc[p]=(prc[p]||0)+1; });
+    row2('🔴 CRÍTICO', prc['CRÍTICO'], '#ffcdd2','#c62828');
+    row2('🟠 ALTO',    prc['ALTO'],    '#ffe0b2','#e65100');
+    row2('🟡 MEDIO',   prc['MEDIO'],   '#fff9c4','#f57f17');
+    row2('🟢 BAJO',    prc['BAJO'],    '#c8e6c9','#2e7d32');
+    an.appendRow([]);
+
+    // Por estado
+    tit('POR ESTADO');
+    const est = {};
+    datos.forEach(r => { const e = r[M.ESTADO-1]||'Sin estado'; est[e]=(est[e]||0)+1; });
+    Object.entries(est).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => row2(k, v));
+    an.appendRow([]);
+
+    // Dimensiones promedio
+    tit('PROMEDIO POR DIMENSIÓN (0-10)');
+    [[M.DIM1,'📚 Capital Educativo'],[M.DIM2,'💼 Capital Laboral'],[M.DIM3,'💻 Habilidades Digitales'],
+     [M.DIM4,'🎯 Claridad Vocacional'],[M.DIM5,'🚧 Barreras Estructurales'],[M.DIM6,'🤝 Red de Apoyo']
+    ].forEach(([col, nombre]) => {
       const vals = datos.map(r => Number(r[col-1])).filter(v => v > 0);
-      const prom = vals.length ? (vals.reduce((a,b) => a+b, 0) / vals.length).toFixed(1) : '—';
-      const bg = prom !== '—' && prom < 4 ? '#ffcdd2' : prom < 7 ? '#fff9c4' : '#c8e6c9';
-      fila2(nombre, prom + ' / 10', prom !== '—' ? bg : null);
+      const prom = vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '—';
+      const bg   = prom !== '—' ? (Number(prom)<4?'#ffcdd2':Number(prom)<7?'#fff9c4':'#c8e6c9') : null;
+      row2(nombre, prom === '—' ? '—' : prom + ' / 10', bg);
     });
     an.appendRow([]);
 
-    // ─── Por zona ───
-    titulo('POR ZONA / LUGAR DE RESIDENCIA');
+    // Por zona
+    tit('POR ZONA');
     const zonas = {};
-    datos.forEach(r => { const z = r[CONFIG.COL.ZONA-1] || 'Sin zona'; zonas[z] = (zonas[z]||0)+1; });
-    Object.entries(zonas).sort((a,b) => b[1]-a[1]).slice(0, 10).forEach(([z, n]) => fila2(z, n));
+    datos.forEach(r => { const z = r[M.ZONA-1]||'Sin zona'; zonas[z]=(zonas[z]||0)+1; });
+    Object.entries(zonas).sort((a,b)=>b[1]-a[1]).slice(0,10).forEach(([z,n]) => row2(z, n));
     an.appendRow([]);
 
-    // ─── Derivaciones ───
-    titulo('DERIVACIONES');
+    // Derivaciones
+    tit('DERIVACIONES');
     if (deriv && deriv.getLastRow() > 1) {
-      const derivDatos = deriv.getRange(2, 1, deriv.getLastRow()-1, 10).getValues().filter(r => r[0]);
-      const pendientes = derivDatos.filter(r => r[6] === 'Pendiente').length;
-      const completadas = derivDatos.filter(r => r[6] === 'Completado').length;
-      const urgentes = derivDatos.filter(r => r[3] === '🚨 URGENTE').length;
-      fila2('Total derivaciones',  derivDatos.length);
-      fila2('🚨 URGENTES',         urgentes, urgentes > 0 ? '#ffcdd2' : null);
-      fila2('⏳ Pendientes',        pendientes, pendientes > 0 ? '#fff9c4' : null);
-      fila2('✅ Completadas',       completadas, '#c8e6c9');
+      const dd = deriv.getRange(2, 1, deriv.getLastRow()-1, 10).getValues().filter(r => r[0]);
+      const urgentes    = dd.filter(r => r[3] === '🚨 URGENTE').length;
+      const pendientes  = dd.filter(r => r[6] === 'Pendiente').length;
+      const completadas = dd.filter(r => r[6] === 'Completado').length;
+      row2('Total derivaciones',   dd.length);
+      row2('🚨 URGENTES',          urgentes,   urgentes  > 0 ? '#ffcdd2' : null, urgentes  > 0 ? '#c62828' : null);
+      row2('⏳ Pendientes',         pendientes, pendientes> 0 ? '#fff9c4' : null, pendientes> 0 ? '#f57f17' : null);
+      row2('✅ Completadas',        completadas,'#c8e6c9','#2e7d32');
     } else {
-      an.appendRow(['Sin derivaciones registradas aún']);
+      an.appendRow(['Sin derivaciones registradas todavía']);
     }
     an.appendRow([]);
 
-    // ─── Puntajes ───
-    titulo('DIAGNÓSTICO — PUNTAJE TOTAL');
-    const pts = datos.map(r => Number(r[CONFIG.COL.PUNTAJE-1])).filter(v => v > 0);
-    const prom = pts.length ? Math.round(pts.reduce((a,b) => a+b,0) / pts.length) : 0;
-    fila2('Promedio', prom + ' / 60');
-    fila2('Máximo',   pts.length ? Math.max(...pts) + ' / 60' : '—');
-    fila2('Mínimo',   pts.length ? Math.min(...pts) + ' / 60' : '—');
+    // Puntajes
+    tit('DIAGNÓSTICO — PUNTAJE TOTAL (máx. 60)');
+    const pts = datos.map(r => Number(r[M.PUNTAJE-1])).filter(v => v > 0);
+    const prom = pts.length ? Math.round(pts.reduce((a,b)=>a+b,0)/pts.length) : 0;
+    const maxP = pts.reduce((a,b)=>b>a?b:a,0);
+    const minP = pts.length ? pts.reduce((a,b)=>b<a?b:a,pts[0]) : 0;
+    row2('Promedio', prom + ' / 60');
+    row2('Máximo',   pts.length ? maxP + ' / 60' : '—');
+    row2('Mínimo',   pts.length ? minP + ' / 60' : '—');
     const bajo30 = pts.filter(p => p < 30).length;
-    if (bajo30 > 0) fila2('⚠️ Con puntaje < 30 (necesitan más apoyo)', bajo30, '#ffcdd2');
+    if (bajo30 > 0) row2('⚠️ Con puntaje < 30 (necesitan más apoyo)', bajo30, '#ffcdd2','#c62828');
 
-    // Formato
-    an.setColumnWidth(1, 280);
-    an.setColumnWidth(2, 120);
+    an.setColumnWidth(1,300); an.setColumnWidth(2,130);
   } catch(e) {}
 }
 
 // ============================================================================
-// NORMALIZACIÓN DE VALORES KOBO
+// VER FICHA DEL PARTICIPANTE
 // ============================================================================
 
-function normalizarPerfil(valor) {
-  if (!valor) return 'Sin perfil';
-  const v = valor.toString().toLowerCase();
-  if (v.includes('perfil a') || v.startsWith('a ') || v === 'a') return 'Perfil A';
-  if (v.includes('perfil b') || v.startsWith('b ') || v === 'b') return 'Perfil B';
-  if (v.includes('perfil c') || v.startsWith('c ') || v === 'c') return 'Perfil C';
-  if (v.includes('perfil d') || v.startsWith('d ') || v === 'd') return 'Perfil D';
-  return valor;
-}
-
-function normalizarPrioridad(valor) {
-  if (!valor) return 'Sin prioridad';
-  const v = valor.toString().toLowerCase();
-  if (v.includes('crít') || v.includes('urgente') || v.includes('crítico')) return 'CRÍTICO';
-  if (v.includes('alto') || v.includes('alta') || v.includes('high')) return 'ALTO';
-  if (v.includes('medio') || v.includes('media') || v.includes('normal') || v.includes('medium')) return 'MEDIO';
-  if (v.includes('bajo') || v.includes('baja') || v.includes('low')) return 'BAJO';
-  return valor;
-}
-
-// ============================================================================
-// DESINSTALAR & LIMPIAR
-// ============================================================================
-
-function desinstalarYLimpiar() {
-  const ui = SpreadsheetApp.getUi();
-  const resp1 = ui.alert(
-    '⚠️ DESINSTALAR SISTEMA',
-    '¿Confirmas que quieres eliminar?\n\n' +
-    '• Todas las carpetas y documentos de participantes en Drive\n' +
-    '• Hojas: Derivaciones, Log, Dashboard\n' +
-    '• Todos los triggers automáticos\n\n' +
-    'La hoja Maestro se conserva con sus datos.',
-    ui.ButtonSet.YES_NO
-  );
-  if (resp1 !== ui.Button.YES) return;
-
-  const resp2 = ui.alert('⚠️ CONFIRMAR', '¿Estás 100% seguro? Esta acción NO se puede deshacer.', ui.ButtonSet.YES_NO);
-  if (resp2 !== ui.Button.YES) return;
-
+function verFicha() {
   try {
-    let eliminados = 0;
+    const ss    = SpreadsheetApp.getActive();
+    const rango = ss.getActiveRange();
+    if (rango.getSheet().getName() !== CONFIG.HOJA) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila en la hoja Maestro.');
+      return;
+    }
+    if (rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de datos, no el encabezado.');
+      return;
+    }
+    const datos = rango.getSheet().getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía.'); return; }
+    mostrarFicha(datos);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
 
-    // Eliminar carpetas de participantes en Drive
-    try {
-      const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-      const folderBase = DriveApp.getFolderById(folderId);
-      const subcarpetas = folderBase.getFolders();
-      while (subcarpetas.hasNext()) {
-        subcarpetas.next().setTrashed(true);
-        eliminados++;
+function mostrarFicha(datos) {
+  const C        = CONFIG.COL;
+  const nombre   = datos[C.NOMBRE-1]     || '—';
+  const perfil   = datos[C.PERFIL-1]     || 'Sin perfil';
+  const priorid  = datos[C.PRIORIDAD-1]  || 'Sin prioridad';
+  const puntaje  = datos[C.PUNTAJE-1]    || 0;
+  const estado   = datos[C.ESTADO-1]     || 'Orientación';
+  const docUrl   = datos[C.DOC_URL-1]    || '';
+  const dims     = [C.DIM1,C.DIM2,C.DIM3,C.DIM4,C.DIM5,C.DIM6].map(k => Number(datos[k-1])||0);
+
+  const col  = CONFIG.COLORES[perfil] || {fondo:'#f5f5f5',texto:'#333'};
+  const cP   = priorid==='CRÍTICO'?'#c62828':priorid==='ALTO'?'#e65100':priorid==='MEDIO'?'#f9a825':'#388e3c';
+  const ini  = nombre.split(' ').slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
+  const pct  = Math.min(100, Math.round((puntaje/60)*100));
+  const docB = docUrl
+    ? '<a href="'+docUrl+'" target="_blank" style="display:block;text-align:center;background:#1a237e;color:#fff;padding:9px 12px;border-radius:5px;margin:10px 0 0;text-decoration:none;font-size:12px;font-weight:bold">📄 Abrir Expediente en Drive</a>'
+    : '';
+
+  const lbs  = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+  const barras = lbs.map((lb,i) =>
+    '<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:10px;color:#777;margin-bottom:2px"><span>'+lb+'</span><span>'+dims[i]+'/10</span></div><div style="background:#e8eaf6;border-radius:3px;height:5px"><div style="width:'+Math.round(dims[i]*10)+'%;background:'+col.texto+';height:5px;border-radius:3px"></div></div></div>'
+  ).join('');
+
+  // SVG radar
+  const cx=85,cy=85,r=65,ang=[-90,-30,30,90,150,210],lbsR=['Educ','Labor','Digit','Vocal','Barr','Apoyo'];
+  let svg='<svg width="170" height="170" viewBox="0 0 170 170">';
+  [0.33,0.66,1].forEach(n=>{
+    const pts=ang.map(a=>{const rad=a*Math.PI/180;return(cx+r*n*Math.cos(rad)).toFixed(1)+','+(cy+r*n*Math.sin(rad)).toFixed(1);}).join(' ');
+    svg+='<polygon points="'+pts+'" fill="none" stroke="#e0e0e0" stroke-width="1"/>';
+  });
+  ang.forEach(a=>{const rad=a*Math.PI/180;svg+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+r*Math.cos(rad)).toFixed(1)+'" y2="'+(cy+r*Math.sin(rad)).toFixed(1)+'" stroke="#e0e0e0" stroke-width="1"/>';});
+  const dpts=ang.map((a,i)=>{const rad=a*Math.PI/180,esc=dims[i]/10;return(cx+r*esc*Math.cos(rad)).toFixed(1)+','+(cy+r*esc*Math.sin(rad)).toFixed(1);}).join(' ');
+  ang.forEach((a,i)=>{const rad=a*Math.PI/180;svg+='<text x="'+(cx+(r+14)*Math.cos(rad)).toFixed(1)+'" y="'+(cy+(r+14)*Math.sin(rad)).toFixed(1)+'" text-anchor="middle" font-size="8" fill="#777">'+lbsR[i]+'</text>';});
+  svg+='<polygon points="'+dpts+'" fill="'+col.texto+'33" stroke="'+col.texto+'" stroke-width="2"/></svg>';
+
+  const campo = (lbl, val) =>
+    '<div class="row"><span class="rl">'+lbl+'</span><span class="rv">'+escaparHtml(String(val||'—'))+'</span></div>';
+
+  const html = HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+    '*{margin:0;padding:0;box-sizing:border-box}' +
+    'body{font-family:Arial,sans-serif;font-size:13px;background:#f5f7ff;color:#333}' +
+    '.hdr{background:'+col.fondo+';padding:14px 16px;border-left:5px solid '+col.texto+';display:flex;gap:12px;align-items:center}' +
+    '.av{width:50px;height:50px;border-radius:50%;background:'+col.texto+';color:#fff;font-size:17px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0}' +
+    '.nom{font-size:14px;font-weight:bold;color:'+col.texto+';line-height:1.3}' +
+    '.tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}' +
+    '.tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold}' +
+    '.tp{background:'+col.texto+';color:'+col.fondo+'}.tpr{background:'+cP+';color:#fff}.te{background:#e0e0e0;color:#555}' +
+    '.prog{padding:10px 16px;background:#fff;border-bottom:1px solid #e8eaf6}' +
+    '.pl{display:flex;justify-content:space-between;font-size:11px;color:#9e9e9e;margin-bottom:4px}' +
+    '.pb{height:8px;background:#e8eaf6;border-radius:4px;overflow:hidden}' +
+    '.pf{height:8px;background:'+col.texto+';width:'+pct+'%;border-radius:4px}' +
+    '.sec{padding:10px 16px;background:#fff;border-bottom:1px solid #f0f0f0}' +
+    '.sh{font-size:9px;font-weight:bold;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}' +
+    '.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}' +
+    '.rl{color:#777;flex-shrink:0;margin-right:8px}.rv{color:#333;font-weight:500;text-align:right}' +
+    '.desc{font-size:12px;color:#444;line-height:1.5}' +
+    '</style></head><body>' +
+    '<div class="hdr"><div class="av">'+ini+'</div><div><div class="nom">'+escaparHtml(nombre)+'</div>' +
+    '<div class="tags"><span class="tag tp">'+escaparHtml(perfil)+'</span>' +
+    '<span class="tag tpr">'+escaparHtml(priorid)+'</span>' +
+    '<span class="tag te">'+escaparHtml(estado)+'</span></div></div></div>' +
+    '<div class="prog"><div class="pl"><span>Puntaje diagnóstico</span><span>'+puntaje+' / 60</span></div>' +
+    '<div class="pb"><div class="pf"></div></div></div>' +
+    '<div class="sec"><div class="sh">Datos Personales</div>' +
+    campo('DPI',      datos[C.DPI-1]) +
+    campo('Edad',     datos[C.EDAD-1]) +
+    campo('Género',   datos[C.GENERO-1]) +
+    campo('Teléfono', datos[C.TELEFONO-1]) +
+    campo('Zona',     datos[C.ZONA-1]) +
+    campo('Email',    datos[C.EMAIL-1]) + '</div>' +
+    '<div class="sec"><div class="sh">Perfil Profesional</div>' +
+    campo('Educación',         datos[C.EDUCACION-1]) +
+    campo('Situación laboral', datos[C.LABORAL-1]) + '</div>' +
+    '<div class="sec"><div class="sh">Fortalezas</div><div class="desc">'+escaparHtml(String(datos[C.FORTALEZAS-1]||'—'))+'</div></div>' +
+    '<div class="sec"><div class="sh">Objetivo laboral</div><div class="desc">'+escaparHtml(String(datos[C.OBJETIVO-1]||'—'))+'</div></div>' +
+    '<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>' +
+    '<div style="display:flex;justify-content:center;margin:6px 0">'+svg+'</div>' +
+    barras + docB + '</div></body></html>'
+  ).setTitle('Perfil — '+nombre).setWidth(360);
+
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// ============================================================================
+// AGREGAR PARTICIPANTE MANUALMENTE
+// ============================================================================
+
+function agregarParticipanteManual() {
+  const ui = SpreadsheetApp.getUi();
+  const html = HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+    '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+    'h3{color:#1a237e;margin:0 0 14px;font-size:14px}' +
+    'label{display:block;font-weight:bold;margin:10px 0 3px;color:#333}' +
+    'input,select,textarea{width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+    'textarea{height:60px;resize:vertical}' +
+    'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold;margin-top:10px}' +
+    'button:hover{background:#283593}' +
+    '.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}' +
+    '.full{grid-column:1/-1}' +
+    '</style></head><body>' +
+    '<h3>➕ Agregar Nuevo Participante</h3>' +
+    '<div class="row">' +
+    '<div><label>ID (opcional)</label><input id="id" placeholder="Auto-generado si está vacío"></div>' +
+    '<div><label>Nombre completo *</label><input id="nombre" placeholder="Nombre y apellido" required></div>' +
+    '<div><label>DPI</label><input id="dpi" placeholder="13 dígitos"></div>' +
+    '<div><label>Edad</label><input id="edad" type="number" min="15" max="120"></div>' +
+    '<div><label>Género</label><select id="genero"><option>—</option><option>Masculino</option><option>Femenino</option><option>Otro</option></select></div>' +
+    '<div><label>Teléfono</label><input id="tel" placeholder="+502 XXXX XXXX"></div>' +
+    '<div><label>Zona/Región</label><input id="zona" placeholder="Ej: Zona 3, Guatemala"></div>' +
+    '<div><label>Email</label><input id="email" type="email" placeholder="correo@ejemplo.com"></div>' +
+    '<div class="full"><label>Educación</label><input id="educacion" placeholder="Nivel educativo alcanzado"></div>' +
+    '<div class="full"><label>Situación laboral actual</label><input id="laboral" placeholder="Empleado, desempleado, etc."></div>' +
+    '<div class="full"><label>Fortalezas/Habilidades</label><textarea id="fortalezas" placeholder="¿Qué sabe hacer bien?"></textarea></div>' +
+    '<div class="full"><label>Objetivo laboral</label><textarea id="objetivo" placeholder="¿Qué tipo de empleo busca?"></textarea></div>' +
+    '<div><label>Estado inicial</label><select id="estado"><option>Orientación</option><option>Mentoría</option><option>Formación</option><option>Cierre</option><option>Inactivo</option></select></div>' +
+    '<div><label>Perfil asignado</label><select id="perfil"><option>—</option><option>Perfil A</option><option>Perfil B</option><option>Perfil C</option><option>Perfil D</option></select></div>' +
+    '</div>' +
+    '<button onclick="guardar()">✅ Guardar Participante</button>' +
+    '<script>' +
+    'function guardar(){' +
+    'var n=document.getElementById("nombre").value.trim();' +
+    'if(!n){alert("El nombre es obligatorio");return;}' +
+    'var obj={' +
+    'id:document.getElementById("id").value.trim(),' +
+    'nombre:n,' +
+    'dpi:document.getElementById("dpi").value.trim(),' +
+    'edad:document.getElementById("edad").value.trim(),' +
+    'genero:document.getElementById("genero").value,' +
+    'tel:document.getElementById("tel").value.trim(),' +
+    'zona:document.getElementById("zona").value.trim(),' +
+    'email:document.getElementById("email").value.trim(),' +
+    'educacion:document.getElementById("educacion").value.trim(),' +
+    'laboral:document.getElementById("laboral").value.trim(),' +
+    'fortalezas:document.getElementById("fortalezas").value.trim(),' +
+    'objetivo:document.getElementById("objetivo").value.trim(),' +
+    'estado:document.getElementById("estado").value,' +
+    'perfil:document.getElementById("perfil").value' +
+    '};' +
+    'google.script.run.withSuccessHandler(function(){alert("✅ Participante agregado");google.script.host.close();}).guardarParticipanteManual(obj);' +
+    '}' +
+    '</script></body></html>'
+  ).setTitle('➕ Nuevo Participante').setWidth(380);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function guardarParticipanteManual(datos) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) return;
+
+    let id = datos.id;
+    if (!id) {
+      id = datos.nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() +
+           Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'ddMMyyyy');
+    }
+
+    const M   = CONFIG.COL;
+    const row = new Array(26).fill('');
+    row[M.ID-1]         = id;
+    row[M.FECHA-1]      = new Date();
+    row[M.NOMBRE-1]     = datos.nombre;
+    row[M.DPI-1]        = datos.dpi;
+    row[M.EDAD-1]       = datos.edad;
+    row[M.GENERO-1]     = datos.genero;
+    row[M.TELEFONO-1]   = datos.tel;
+    row[M.ZONA-1]       = datos.zona;
+    row[M.EMAIL-1]      = datos.email;
+    row[M.EDUCACION-1]  = datos.educacion;
+    row[M.LABORAL-1]    = datos.laboral;
+    row[M.FORTALEZAS-1] = datos.fortalezas;
+    row[M.OBJETIVO-1]   = datos.objetivo;
+    row[M.PERFIL-1]     = datos.perfil === '—' ? '' : datos.perfil;
+    row[M.ESTADO-1]     = datos.estado;
+
+    hoja.appendRow(row);
+    colorearFila(hoja, hoja.getLastRow(), datos.perfil);
+    SpreadsheetApp.flush();
+  } catch(e) {
+    logError('guardarParticipanteManual', e);
+  }
+}
+
+// ============================================================================
+// EDITAR PARTICIPANTE
+// ============================================================================
+
+function editarParticipante() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const rango = ss.getActiveRange();
+    if (rango.getSheet().getName() !== CONFIG.HOJA) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila en la hoja Maestro.');
+      return;
+    }
+    if (rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de participante (no el encabezado).');
+      return;
+    }
+    const datos = rango.getSheet().getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía, no hay participante.'); return; }
+
+    const C = CONFIG.COL;
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+      'h3{color:#1a237e;margin:0 0 14px;font-size:14px}' +
+      'label{display:block;font-weight:bold;margin:10px 0 3px;color:#333}' +
+      'input,select,textarea{width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+      'textarea{height:50px;resize:vertical}' +
+      'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:48%;font-weight:bold;margin-right:2%;margin-top:10px}' +
+      'button:last-child{margin-right:0}button:hover{background:#283593}' +
+      '.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}' +
+      '</style></head><body>' +
+      '<h3>✏️ Editar Participante</h3>' +
+      '<div class="row">' +
+      '<div><label>ID</label><input id="id" value="'+escaparHtml(String(datos[C.ID-1]||''))+'" disabled style="background:#f0f0f0"></div>' +
+      '<div><label>Nombre</label><input id="nombre" value="'+escaparHtml(String(datos[C.NOMBRE-1]||''))+'"></div>' +
+      '<div><label>DPI</label><input id="dpi" value="'+escaparHtml(String(datos[C.DPI-1]||''))+'"></div>' +
+      '<div><label>Edad</label><input id="edad" type="number" value="'+(datos[C.EDAD-1]||'')+'"></div>' +
+      '<div><label>Género</label><select id="genero"><option>—</option><option '+(datos[C.GENERO-1]==='Masculino'?'selected':'')+'>Masculino</option><option '+(datos[C.GENERO-1]==='Femenino'?'selected':'')+'>Femenino</option><option '+(datos[C.GENERO-1]==='Otro'?'selected':'')+'>Otro</option></select></div>' +
+      '<div><label>Teléfono</label><input id="tel" value="'+escaparHtml(String(datos[C.TELEFONO-1]||''))+'"></div>' +
+      '<div><label>Zona</label><input id="zona" value="'+escaparHtml(String(datos[C.ZONA-1]||''))+'"></div>' +
+      '<div><label>Email</label><input id="email" type="email" value="'+escaparHtml(String(datos[C.EMAIL-1]||''))+'"></div>' +
+      '<div class="full"><label>Educación</label><input id="educacion" value="'+escaparHtml(String(datos[C.EDUCACION-1]||''))+'"></div>' +
+      '<div class="full"><label>Situación laboral</label><input id="laboral" value="'+escaparHtml(String(datos[C.LABORAL-1]||''))+'"></div>' +
+      '<div class="full"><label>Fortalezas</label><textarea id="fortalezas">'+escaparHtml(String(datos[C.FORTALEZAS-1]||''))+'</textarea></div>' +
+      '<div class="full"><label>Objetivo laboral</label><textarea id="objetivo">'+escaparHtml(String(datos[C.OBJETIVO-1]||''))+'</textarea></div>' +
+      '<div><label>Perfil</label><select id="perfil"><option>—</option><option '+(datos[C.PERFIL-1]==='Perfil A'?'selected':'')+'>Perfil A</option><option '+(datos[C.PERFIL-1]==='Perfil B'?'selected':'')+'>Perfil B</option><option '+(datos[C.PERFIL-1]==='Perfil C'?'selected':'')+'>Perfil C</option><option '+(datos[C.PERFIL-1]==='Perfil D'?'selected':'')+'>Perfil D</option></select></div>' +
+      '<div><label>Estado</label><select id="estado"><option '+(datos[C.ESTADO-1]==='Orientación'?'selected':'')+'>Orientación</option><option '+(datos[C.ESTADO-1]==='Mentoría'?'selected':'')+'>Mentoría</option><option '+(datos[C.ESTADO-1]==='Formación'?'selected':'')+'>Formación</option><option '+(datos[C.ESTADO-1]==='Cierre'?'selected':'')+'>Cierre</option><option '+(datos[C.ESTADO-1]==='Inactivo'?'selected':'')+'>Inactivo</option></select></div>' +
+      '<button onclick="google.script.host.close()">✗ Cancelar</button>' +
+      '<button onclick="guardar()">✅ Guardar Cambios</button>' +
+      '</div>' +
+      '<script>' +
+      'function guardar(){var obj={nombre:document.getElementById("nombre").value.trim(),dpi:document.getElementById("dpi").value.trim(),edad:document.getElementById("edad").value.trim(),genero:document.getElementById("genero").value,tel:document.getElementById("tel").value.trim(),zona:document.getElementById("zona").value.trim(),email:document.getElementById("email").value.trim(),educacion:document.getElementById("educacion").value.trim(),laboral:document.getElementById("laboral").value.trim(),fortalezas:document.getElementById("fortalezas").value.trim(),objetivo:document.getElementById("objetivo").value.trim(),perfil:document.getElementById("perfil").value,estado:document.getElementById("estado").value};' +
+      'google.script.run.withSuccessHandler(function(){alert("✅ Cambios guardados");google.script.host.close();}).guardarEdicionParticipante('+rango.getRow()+',obj);' +
+      '}' +
+      '</script></body></html>'
+    ).setTitle('✏️ Editar Participante').setWidth(380);
+    SpreadsheetApp.getUi().showSidebar(html);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+function guardarEdicionParticipante(fila, datos) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) return;
+    const M = CONFIG.COL;
+    hoja.getRange(fila, M.NOMBRE,     1, 1).setValue(datos.nombre);
+    hoja.getRange(fila, M.DPI,        1, 1).setValue(datos.dpi);
+    hoja.getRange(fila, M.EDAD,       1, 1).setValue(datos.edad);
+    hoja.getRange(fila, M.GENERO,     1, 1).setValue(datos.genero);
+    hoja.getRange(fila, M.TELEFONO,   1, 1).setValue(datos.tel);
+    hoja.getRange(fila, M.ZONA,       1, 1).setValue(datos.zona);
+    hoja.getRange(fila, M.EMAIL,      1, 1).setValue(datos.email);
+    hoja.getRange(fila, M.EDUCACION,  1, 1).setValue(datos.educacion);
+    hoja.getRange(fila, M.LABORAL,    1, 1).setValue(datos.laboral);
+    hoja.getRange(fila, M.FORTALEZAS, 1, 1).setValue(datos.fortalezas);
+    hoja.getRange(fila, M.OBJETIVO,   1, 1).setValue(datos.objetivo);
+    hoja.getRange(fila, M.PERFIL,     1, 1).setValue(datos.perfil === '—' ? '' : datos.perfil);
+    hoja.getRange(fila, M.ESTADO,     1, 1).setValue(datos.estado);
+    colorearFila(hoja, fila, datos.perfil);
+    SpreadsheetApp.flush();
+  } catch(e) { logError('guardarEdicionParticipante', e); }
+}
+
+// ============================================================================
+// FORMULARIO DE DERIVACIÓN MEJORADO
+// ============================================================================
+
+function abrirFormDerivacion() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const hoja  = ss.getSheetByName(CONFIG.HOJA);
+    const rango = ss.getActiveRange();
+    if (!hoja || rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona un participante en Maestro.');
+      return;
+    }
+    const datos = hoja.getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    const C = CONFIG.COL;
+    const id   = datos[C.ID-1]   || '';
+    const nom  = datos[C.NOMBRE-1] || '';
+    if (!id) { SpreadsheetApp.getUi().alert('⚠️ Participante sin ID.'); return; }
+
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      '*{box-sizing:border-box}body{font-family:Arial;padding:16px;background:#f5f7ff;font-size:12px}' +
+      '.info{background:#e3f2fd;border-left:4px solid #1a237e;padding:12px;margin-bottom:14px;border-radius:4px}' +
+      '.info strong{color:#1a237e}' +
+      'label{display:block;font-weight:bold;margin:12px 0 4px;color:#333}' +
+      'input,select,textarea{width:100%;padding:8px;border:1px solid #c5cae9;border-radius:4px;margin-bottom:8px;font-size:12px}' +
+      'textarea{height:80px;resize:vertical}' +
+      'button{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:bold;margin-top:10px}' +
+      'button:hover{background:#283593}' +
+      '</style></head><body>' +
+      '<h3>➡️ Registrar Derivación</h3>' +
+      '<div class="info"><strong>Participante:</strong> '+escaparHtml(nom)+'<br><strong>ID:</strong> '+escaparHtml(id)+'</div>' +
+      '<label>Tipo de derivación *</label>' +
+      '<select id="tipo" required>' +
+      '<option value="">Selecciona...</option>' +
+      '<option value="💡 SUGERIDA">💡 SUGERIDA — Recomendación</option>' +
+      '<option value="⚠️ ALERTA">⚠️ ALERTA — Requiere atención</option>' +
+      '<option value="🚨 URGENTE">🚨 URGENTE — Caso crítico</option>' +
+      '</select>' +
+      '<label>Organización/Programa destino *</label>' +
+      '<select id="org" required>' +
+      '<option value="">Selecciona...</option>' +
+      '<option>Creamos Voces (Apoyo Emocional)</option>' +
+      '<option>Mentoría Vocacional</option>' +
+      '<option>Intermediación Laboral</option>' +
+      '<option>Formación Técnica</option>' +
+      '<option>Educación de Adultos</option>' +
+      '<option>Alfabetización Digital</option>' +
+      '<option>Servicios Profesionales (Legal/Salud)</option>' +
+      '<option>Grupos de Apoyo Comunitario</option>' +
+      '<option>Otro programa Creamos</option>' +
+      '<option>Entidad pública</option>' +
+      '<option>ONG externa</option>' +
+      '<option>Otra</option>' +
+      '</select>' +
+      '<label>Motivo/Justificación *</label>' +
+      '<textarea id="motivo" placeholder="¿Por qué se deriva a este programa?" required></textarea>' +
+      '<label>Notas adicionales</label>' +
+      '<textarea id="notas" placeholder="Información complementaria..." maxlength="500"></textarea>' +
+      '<button onclick="guardar()">✅ Registrar Derivación</button>' +
+      '<script>' +
+      'function guardar(){' +
+      'var t=document.getElementById("tipo").value,' +
+      'o=document.getElementById("org").value,' +
+      'm=document.getElementById("motivo").value.trim(),' +
+      'n=document.getElementById("notas").value.trim();' +
+      'if(!t||!o||!m){alert("Completa: Tipo, Organización y Motivo");return;}' +
+      'google.script.run.withSuccessHandler(function(){alert("✅ Derivación registrada");google.script.host.close();}).guardarDerivacion("'+escaparHtml(id)+'","'+escaparHtml(nom)+'",t,o,m,n);' +
+      '}' +
+      '</script></body></html>'
+    ).setTitle('➡️ Derivar Participante').setWidth(380);
+    SpreadsheetApp.getUi().showSidebar(html);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+// ============================================================================
+// DERIVACIONES
+// ============================================================================
+
+function verDerivaciones() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const sheet = ss.getSheetByName('Derivaciones');
+    if (!sheet) { SpreadsheetApp.getUi().alert('❌ Instala el sistema primero.'); return; }
+    ss.setActiveSheet(sheet);
+    const pend = sheet.getLastRow() > 1
+      ? sheet.getRange(2, 7, sheet.getLastRow()-1, 1).getValues().filter(r => r[0]==='Pendiente').length
+      : 0;
+    if (pend > 0) SpreadsheetApp.getUi().alert('📋 Derivaciones\n\n⚠️ Tienes ' + pend + ' derivación(es) PENDIENTE(S).\n\nCambia el Estado a "Completado" cuando las gestiones.');
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+function guardarDerivacion(id, nombre, tipo, destino, motivo, notas) {
+  try {
+    const sheet = SpreadsheetApp.getActive().getSheetByName('Derivaciones');
+    if (!sheet) return;
+    sheet.appendRow([new Date(), id, nombre, tipo||'Manual', destino, motivo, 'Pendiente',
+                     Session.getEffectiveUser().getEmail(), '', notas||'']);
+    const n     = sheet.getLastRow();
+    const color = tipo && tipo.includes('URGENTE') ? '#ffcdd2' : tipo && tipo.includes('ALERTA') ? '#fff9c4' : '#e8f5e9';
+    sheet.getRange(n, 1, 1, 10).setBackground(color);
+  } catch(e) { logError('guardarDerivacion', e); }
+}
+
+function registrarDerivacionesAutomaticas(ss, id, nombre, fila, M) {
+  try {
+    const deriv = ss.getSheetByName('Derivaciones');
+    if (!deriv) return;
+    const perfil    = fila[M.PERFIL-1]    || '';
+    const prioridad = fila[M.PRIORIDAD-1] || '';
+    const dim5      = Number(fila[M.DIM5-1]) || 0;
+    const dim3      = Number(fila[M.DIM3-1]) || 0;
+    const dim1      = Number(fila[M.DIM1-1]) || 0;
+    const dim6      = Number(fila[M.DIM6-1]) || 0;
+    const hoy       = new Date();
+
+    const add = (tipo, dest, motivo) => {
+      deriv.appendRow([hoy, id, nombre, tipo, dest, motivo, 'Pendiente','','','']);
+      const c = tipo==='🚨 URGENTE' ? '#ffcdd2' : '#fff9c4';
+      deriv.getRange(deriv.getLastRow(), 1, 1, 10).setBackground(c);
+    };
+
+    if (perfil==='Perfil D' || prioridad==='CRÍTICO') {
+      add('🚨 URGENTE','Creamos Voces (Apoyo Emocional)','Barreras críticas — Perfil ' + perfil);
+      if (dim5 <= 4) add('🚨 URGENTE','Servicios Profesionales','Barreras estructurales: ' + dim5 + '/10');
+      enviarAlertaCritica(id, nombre, perfil, dim5);
+    }
+    if (perfil === 'Perfil B') add('💡 SUGERIDA','Mentoría Vocacional','Requiere orientación vocacional — 3-6 sesiones');
+    if (perfil === 'Perfil C') {
+      if (dim1 <= 4) add('💡 SUGERIDA','Educación de Adultos','Capital educativo bajo: ' + dim1 + '/10');
+      if (dim3 <= 4) add('💡 SUGERIDA','Alfabetización Digital','Habilidades digitales bajas: ' + dim3 + '/10');
+    }
+    if (dim5 <= 3 && perfil !== 'Perfil D') add('⚠️ ALERTA','Creamos Voces','Barreras muy bajas: ' + dim5 + '/10');
+    if (dim6 <= 3) add('💡 SUGERIDA','Grupos de Apoyo Comunitario','Red de apoyo débil: ' + dim6 + '/10');
+    if (perfil === 'Perfil A') add('✅ OPORTUNIDAD','Intermediación Laboral','Lista para empleo — ' + Number(fila[M.PUNTAJE-1]) + '/60 pts');
+  } catch(e) {}
+}
+
+function enviarAlertaCritica(id, nombre, perfil, dim5) {
+  try {
+    MailApp.sendEmail(
+      getAdminEmail(),
+      '🚨 URGENTE: Barreras críticas — ' + nombre,
+      '🚨 CASO URGENTE\n\nParticipante: ' + nombre + '\nID: ' + id +
+      '\nPerfil: ' + perfil + '\nBarreras estructurales: ' + dim5 + '/10\n\n' +
+      'ACCIONES REQUERIDAS:\n• Derivar a Creamos Voces\n• Derivar a Servicios Profesionales\n• No iniciar proceso de empleo hasta resolver barreras\n\nSistema Paso a Paso'
+    );
+  } catch(e) {}
+}
+
+// ============================================================================
+// ALERTAS AUTOMÁTICAS
+// ============================================================================
+
+function verificarCasosDormidos() {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) return;
+    const M      = CONFIG.COL;
+    const datos  = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues();
+    const hoy    = new Date();
+    const dormidos = [];
+
+    datos.forEach((fila, i) => {
+      if (!fila[0]) return;
+      const dias = Math.floor((hoy - new Date(fila[M.FECHA-1])) / 86400000);
+      if (dias > 30) {
+        hoja.getRange(i+2, 1, 1, 26).setBackground('#b71c1c').setFontColor('#fff');
+        dormidos.push({ nombre: fila[M.NOMBRE-1], dias, estado: fila[M.ESTADO-1] });
       }
-    } catch(e) {}
-
-    // Eliminar hojas secundarias
-    const ss = SpreadsheetApp.getActive();
-    ['Derivaciones', 'Log', 'Dashboard'].forEach(nombre => {
-      const h = ss.getSheetByName(nombre);
-      if (h) ss.deleteSheet(h);
     });
 
-    // Eliminar todos los triggers
-    ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+    if (dormidos.length > 0) {
+      let body = dormidos.length + ' participantes sin seguimiento (30+ días):\n\n';
+      dormidos.forEach(c => body += '• ' + c.nombre + ' (' + c.dias + ' días) — ' + c.estado + '\n');
+      MailApp.sendEmail(getAdminEmail(), '🚨 Alerta — ' + dormidos.length + ' casos sin seguimiento', body);
+    }
+  } catch(e) {}
+}
 
-    // Limpiar PropertiesService
-    PropertiesService.getUserProperties().deleteAllProperties();
+function enviarReporteSemanal() {
+  try {
+    const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+    if (!hoja || hoja.getLastRow() < 2) return;
+    const M     = CONFIG.COL;
+    const tz    = Session.getScriptTimeZone();
+    const datos = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues().filter(r => r[0]);
+    const hoy   = new Date();
+    const hace7 = new Date(hoy.getTime() - 7*24*60*60*1000);
 
-    ui.alert('✅ Sistema limpiado\n\n' +
-      '• ' + eliminados + ' carpetas eliminadas de Drive\n' +
-      '• Hojas secundarias eliminadas\n' +
-      '• Triggers eliminados\n\n' +
-      'Puedes volver a instalar con 📥 Instalar Sistema.'
-    );
-  } catch(e) {
-    ui.alert('❌ Error al desinstalar: ' + e);
-  }
+    const nuevos   = datos.filter(r => new Date(r[M.FECHA-1]) >= hace7);
+    const criticos = datos.filter(r => normalizarPrioridad(r[M.PRIORIDAD-1]) === 'CRÍTICO');
+
+    let body = '══════════════════════════════\n📊 REPORTE SEMANAL — PASO A PASO\n══════════════════════════════\n\n';
+    body += 'Semana: ' + Utilities.formatDate(hace7,tz,'dd/MM') + ' - ' + Utilities.formatDate(hoy,tz,'dd/MM/yyyy') + '\n\n';
+    body += '✨ Nuevos: ' + nuevos.length + '\n';
+    nuevos.forEach(r => body += '  • ' + r[M.NOMBRE-1] + '\n');
+    body += '\n🔴 Críticos: ' + criticos.length + '\n';
+    criticos.forEach(r => body += '  • ' + r[M.NOMBRE-1] + ' — ' + r[M.ESTADO-1] + '\n');
+    body += '\nTotal participantes: ' + datos.length + '\n\nSistema Paso a Paso';
+
+    MailApp.sendEmail(getAdminEmail(), '📊 Reporte semanal — Paso a Paso', body);
+  } catch(e) {}
+}
+
+// ============================================================================
+// CALENDAR + EMAIL AL PARTICIPANTE
+// ============================================================================
+
+function crearEventoCalendario(nombre, estado, docUrl) {
+  try {
+    const cfg = {
+      'Mentoría':   { dias:7,  titulo:'📋 Seguimiento: '   + nombre, desc:'Primera sesión de seguimiento en mentoría.' },
+      'Formación':  { dias:14, titulo:'📚 Revisión: '      + nombre, desc:'Revisión de avance en formación técnica.' },
+      'Completado': { dias:30, titulo:'🏁 Post-cierre: '   + nombre, desc:'Revisión de resultados post-cierre.' },
+      'Cierre':     { dias:30, titulo:'🏁 Post-cierre: '   + nombre, desc:'Revisión de resultados post-cierre.' }
+    };
+    const conf = cfg[estado];
+    if (!conf) return;
+    const inicio = new Date(Date.now() + conf.dias * 86400000);
+    inicio.setHours(9,0,0,0);
+    const fin = new Date(inicio.getTime() + 30*60000);
+    CalendarApp.getDefaultCalendar().createEvent(conf.titulo, inicio, fin,
+      { description: conf.desc + (docUrl ? '\n\nExpediente: ' + docUrl : '') });
+  } catch(e) {}
+}
+
+function notificarParticipante(nombre, emailP, estado) {
+  try {
+    const corto = nombre.split(' ')[0];
+    const msgs  = {
+      'Mentoría':   { asunto:'✅ Tu proceso avanzó a Mentoría — Paso a Paso',
+                      body:'Hola '+corto+',\n\nTu proceso ha avanzado a MENTORÍA. Recibirás acompañamiento personalizado.\n\n💪 ¡Seguimos adelante!\nEquipo Creamos' },
+      'Formación':  { asunto:'📚 Iniciaste Formación — Paso a Paso',
+                      body:'Hola '+corto+',\n\n🎉 ¡Iniciaste tu proceso de Formación! Un gran paso.\n\n¡Seguimos contigo!\nEquipo Creamos' },
+      'Completado': { asunto:'🏆 Completaste el programa — Creamos',
+                      body:'Hola '+corto+',\n\n🎊 ¡FELICITACIONES! Completaste el programa Paso a Paso.\n\n🌟 ¡Mucho éxito!\nEquipo Creamos' }
+    };
+    const m = msgs[estado];
+    if (!m) return;
+    MailApp.sendEmail({ to: emailP, subject: m.asunto, body: m.body, replyTo: getAdminEmail() });
+  } catch(e) {}
+}
+
+// ============================================================================
+// CONFIGURACIÓN
+// ============================================================================
+
+function abrirConfiguracion() {
+  const props    = PropertiesService.getUserProperties();
+  const tieneKey = !!props.getProperty('KOBO_API_KEY');
+  const folderId = escaparHtml(props.getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID);
+  const email    = escaparHtml(props.getProperty('ADMIN_EMAIL') || CONFIG.ADMIN_EMAIL);
+
+  const html = HtmlService.createHtmlOutput(
+    '<style>*{box-sizing:border-box}' +
+    'body{font-family:Arial,sans-serif;padding:16px;background:#f5f7ff;font-size:13px}' +
+    'h3{color:#1a237e;margin:0 0 12px;font-size:14px}' +
+    'label{display:block;font-weight:bold;margin:12px 0 4px;color:#444;font-size:12px}' +
+    'input,textarea{width:100%;padding:8px;border:1px solid #c5cae9;border-radius:5px;font-size:12px;background:#fff;font-family:inherit}' +
+    'textarea{height:60px;resize:vertical;font-family:monospace}' +
+    'button{margin-top:14px;background:#1a237e;color:#fff;padding:10px;border:none;border-radius:5px;cursor:pointer;width:100%;font-weight:bold;font-size:13px}' +
+    'button:hover{background:#283593}' +
+    '.chip{display:inline-block;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:bold;margin-bottom:10px}' +
+    '.ok{background:#e8f5e9;color:#2e7d32}.no{background:#ffcdd2;color:#c62828}' +
+    '.hint{font-size:10px;color:#9e9e9e;margin-top:3px}' +
+    '</style>' +
+    '<h3>⚙️ Configuración del Sistema</h3>' +
+    '<div class="chip ' + (tieneKey?'ok':'no') + '">' + (tieneKey?'✅ Kobo configurado':'⚠️ Kobo no configurado') + '</div>' +
+    '<label>Email para alertas</label><input id="em" type="email" value="' + email + '" maxlength="100">' +
+    '<label>ID Carpeta Drive</label><input id="ci" value="' + folderId + '" maxlength="70">' +
+    '<div class="hint">URL: drive.google.com/drive/folders/<strong>ESTE_ES_EL_ID</strong></div>' +
+    '<label>API Key Kobo</label><textarea id="kk" placeholder="' + (tieneKey?'Configurada — deja vacío para no cambiar':'Kobo → Cuenta → Seguridad → Clave API') + '" maxlength="80"></textarea>' +
+    '<button onclick="save()">💾 Guardar</button>' +
+    '<script>function save(){var e=document.getElementById("em").value.trim(),c=document.getElementById("ci").value.trim(),k=document.getElementById("kk").value.trim();' +
+    'if(!e||!c){alert("Email y Carpeta Drive son obligatorios");return;}' +
+    'google.script.run.withSuccessHandler(function(){alert("✅ Configuración guardada");google.script.host.close();}).guardarConfig(e,c,k);}</script>'
+  ).setTitle('Configuración').setWidth(340);
+
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function guardarConfig(email, carpeta, apiKey) {
+  const p = PropertiesService.getUserProperties();
+  p.setProperty('ADMIN_EMAIL', email);
+  p.setProperty('FOLDER_ID',   carpeta);
+  if (apiKey && apiKey.trim()) p.setProperty('KOBO_API_KEY', apiKey.trim());
+}
+
+// ============================================================================
+// PROBAR KOBO
+// ============================================================================
+
+function probarKobo() {
+  try {
+    const key  = getKoboKey();
+    const resp = UrlFetchApp.fetch(CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/',
+      { headers: { Authorization: 'Token ' + key }, muteHttpExceptions: true });
+    if (resp.getResponseCode() === 200) {
+      const n = JSON.parse(resp.getContentText()).deployment__submission_count || 0;
+      SpreadsheetApp.getUi().alert('✅ Kobo conectado\n\n📊 ' + n + ' respuestas disponibles');
+    } else {
+      SpreadsheetApp.getUi().alert('❌ Error ' + resp.getResponseCode() + '\n\nVerifica tu API Key en ⚙️ Configuración.');
+    }
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e.message); }
 }
 
 // ============================================================================
@@ -1420,173 +1551,106 @@ function desinstalarYLimpiar() {
 function restaurarDesdeDrive() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const ss = SpreadsheetApp.getActive();
+    const ss   = SpreadsheetApp.getActive();
     const hoja = ss.getSheetByName(CONFIG.HOJA);
-    if (!hoja) {
-      ui.alert('❌ No existe la hoja Maestro. Instala primero.');
-      return;
-    }
+    if (!hoja) { ui.alert('❌ No existe el Maestro. Instala primero.'); return; }
 
-    // IDs existentes en el Sheet
     const existentes = new Set();
     if (hoja.getLastRow() > 1) {
-      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow()-1, 1)
         .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
     }
 
-    const folderId = PropertiesService.getUserProperties().getProperty('FOLDER_ID') || CONFIG.FOLDER_PARTICIPANTES_ID;
-    const folderBase = DriveApp.getFolderById(folderId);
-    const subcarpetas = folderBase.getFolders();
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    const subs = folderBase.getFolders();
     let restaurados = 0;
 
-    while (subcarpetas.hasNext()) {
-      const carpeta = subcarpetas.next();
-      const nombreCarpeta = carpeta.getName(); // Formato: "ID - Nombre"
-      const partes = nombreCarpeta.split(' - ');
+    while (subs.hasNext()) {
+      const carp = subs.next();
+      const partes = carp.getName().split(' — ');
       if (partes.length < 2) continue;
+      const id     = partes[0].trim();
+      const nombre = partes.slice(1).join(' — ').trim();
+      if (existentes.has(id)) continue;
 
-      const id = partes[0].trim();
-      const nombre = partes.slice(1).join(' - ').trim();
-
-      if (existentes.has(id)) continue; // Ya existe en Sheet
-
-      // Buscar el doc de perfil dentro de la carpeta
-      const archivos = carpeta.getFilesByName('Perfil - ' + nombre);
-      const docId = archivos.hasNext() ? archivos.next().getId() : '';
+      const archs = carp.getFilesByName('Perfil — ' + nombre);
+      const docId = archs.hasNext() ? archs.next().getId() : '';
       const docUrl = docId ? 'https://docs.google.com/document/d/' + docId + '/edit' : '';
 
-      // Crear fila mínima con lo que podemos recuperar
-      const fila = [
-        id, new Date(), nombre,
-        '','','','','','','','','','',
-        '','','0','0','0','0','0','0','0',
-        'Recuperado',
-        carpeta.getId(), docId, docUrl
-      ];
-
-      hoja.appendRow(fila);
+      const row = new Array(26).fill('');
+      row[CONFIG.COL.ID-1]         = id;
+      row[CONFIG.COL.FECHA-1]      = new Date();
+      row[CONFIG.COL.NOMBRE-1]     = nombre;
+      row[CONFIG.COL.ESTADO-1]     = 'Recuperado';
+      row[CONFIG.COL.CARPETA_ID-1] = carp.getId();
+      row[CONFIG.COL.DOC_ID-1]     = docId;
+      row[CONFIG.COL.DOC_URL-1]    = docUrl;
+      hoja.appendRow(row);
       restaurados++;
     }
 
-    ui.alert('✅ Restauración completada\n\n' +
-      restaurados + ' participantes recuperados desde Drive\n\n' +
-      'Nota: Solo se recuperan ID, Nombre y links.\n' +
-      'Sincroniza con Kobo para completar los datos.'
-    );
-  } catch(e) {
-    ui.alert('❌ Error al restaurar: ' + e);
-  }
+    ui.alert('✅ Restaurados: ' + restaurados + ' participantes desde Drive.\n\nNota: solo se recuperan ID, Nombre y links. Sincroniza con Kobo para completar datos.');
+  } catch(e) { ui.alert('❌ Error: ' + e); }
 }
 
 // ============================================================================
-// GOOGLE CALENDAR — Eventos automáticos por cambio de estado
+// DESINSTALAR & LIMPIAR
 // ============================================================================
 
-function crearEventoCalendario(nombre, nuevoEstado, docUrl) {
-  try {
-    const cal = CalendarApp.getDefaultCalendar();
-    const hoy = new Date();
-    let diasAdelante = 0;
-    let titulo = '';
-    let descripcion = '';
+function desinstalarYLimpiar() {
+  const ui = SpreadsheetApp.getUi();
+  if (ui.alert('⚠️ DESINSTALAR — ¿Eliminar TODO?',
+    'Se perderán hojas, expedientes en Drive, triggers y configuración.',
+    ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
 
-    if (nuevoEstado === 'Mentoría') {
-      diasAdelante = 7;
-      titulo = '📋 Seguimiento: ' + nombre;
-      descripcion = 'Primera sesión de seguimiento en mentoría.\n\nParticipante: ' + nombre + '\nEstado: Mentoría\nExpediente: ' + (docUrl || 'Sin link');
-    } else if (nuevoEstado === 'Formación') {
-      diasAdelante = 14;
-      titulo = '📚 Revisión formación: ' + nombre;
-      descripcion = 'Revisión de avance en formación técnica.\n\nParticipante: ' + nombre + '\nExpediente: ' + (docUrl || 'Sin link');
-    } else if (nuevoEstado === 'Completado' || nuevoEstado === 'Cierre') {
-      diasAdelante = 30;
-      titulo = '🏁 Revisión de resultados: ' + nombre;
-      descripcion = 'Revisión de resultados post-cierre del caso.\n\nParticipante: ' + nombre + '\nExpediente: ' + (docUrl || 'Sin link');
-    }
+  if (ui.alert('⚠️ ÚLTIMA CONFIRMACIÓN',
+    '¿Seguro? Esta acción es IRREVERSIBLE.',
+    ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
 
-    if (!titulo) return;
+  const ss = SpreadsheetApp.getActive();
+  let eliminados = 0, errores = 0;
 
-    const fechaEvento = new Date(hoy.getTime() + diasAdelante * 24 * 60 * 60 * 1000);
-    fechaEvento.setHours(9, 0, 0, 0);
-    const fechaFin = new Date(fechaEvento.getTime() + 30 * 60 * 1000);
-
-    cal.createEvent(titulo, fechaEvento, fechaFin, { description: descripcion });
-  } catch(e) {
-    // Sin permisos de calendar o error silencioso
+  // Eliminar expedientes de Drive
+  const maestro = ss.getSheetByName(CONFIG.HOJA);
+  if (maestro && maestro.getLastRow() > 1) {
+    const M = CONFIG.COL;
+    maestro.getRange(2, 1, maestro.getLastRow()-1, 26).getValues().forEach(fila => {
+      const cId = String(fila[M.CARPETA_ID-1]||'').trim();
+      const dId = String(fila[M.DOC_ID-1]    ||'').trim();
+      if (cId) {
+        try { DriveApp.getFolderById(cId).setTrashed(true); eliminados++; }
+        catch(e) { if (dId) try { DriveApp.getFileById(dId).setTrashed(true); } catch(e2) { errores++; } }
+      } else if (dId) {
+        try { DriveApp.getFileById(dId).setTrashed(true); eliminados++; } catch(e) { errores++; }
+      }
+    });
   }
+
+  // Crear hoja temporal (Sheets necesita mínimo 1 hoja)
+  let tmp;
+  try { tmp = ss.insertSheet('_temp_'); } catch(e) {}
+
+  // Eliminar todas las hojas del sistema
+  ['Maestro','Derivaciones','Log','Dashboard','Analytics'].forEach(n => {
+    const h = ss.getSheetByName(n);
+    if (h) try { ss.deleteSheet(h); } catch(e) {}
+  });
+
+  if (tmp) try { tmp.setName('Hoja1'); } catch(e) {}
+
+  // Eliminar triggers y configuración
+  ScriptApp.getProjectTriggers().forEach(t => { try { ScriptApp.deleteTrigger(t); } catch(e) {} });
+  PropertiesService.getUserProperties().deleteAllProperties();
+
+  ui.alert(
+    '✅ Sistema eliminado\n\n' +
+    '📁 ' + eliminados + ' expediente(s) a papelera' + (errores > 0 ? ' (' + errores + ' errores)' : '') + '\n' +
+    '📋 Hojas eliminadas\n' +
+    '⏱️ Triggers eliminados\n\n' +
+    'Para empezar de nuevo: 📥 Instalar Sistema'
+  );
 }
 
 // ============================================================================
-// EMAIL AL PARTICIPANTE — Notificación de avance de estado
-// ============================================================================
-
-function notificarParticipante(nombre, emailParticipante, nuevoEstado, datos) {
-  try {
-    const C = CONFIG.COL;
-    const estados = ['Mentoría', 'Formación', 'Completado'];
-    if (!estados.includes(nuevoEstado)) return;
-
-    const nombreCorto = nombre.split(' ')[0];
-    const responsable = datos[14] || 'Tu equipo Creamos'; // columna 15 = Responsable si existe
-    const docUrl = datos[C.DOC_URL - 1] || '';
-
-    let cuerpo = '';
-    let asunto = '';
-
-    if (nuevoEstado === 'Mentoría') {
-      asunto = '✅ ¡Tu proceso avanzó a Mentoría! — Paso a Paso';
-      cuerpo =
-        'Hola ' + nombreCorto + ',\n\n' +
-        'Tienes una actualización en tu proceso con Creamos. 🌱\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '✅ Tu estado ha avanzado a: MENTORÍA\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
-        'En esta etapa vas a recibir acompañamiento personalizado para\n' +
-        'definir tu objetivo laboral y fortalecer tus habilidades.\n\n' +
-        'Tu equipo de acompañamiento está contigo. 💪\n\n' +
-        'Si tienes preguntas, responde a este correo.\n\n' +
-        '¡Seguimos adelante! 🚀\n' +
-        'Equipo Creamos — Programa Paso a Paso';
-    } else if (nuevoEstado === 'Formación') {
-      asunto = '📚 ¡Iniciaste tu proceso de Formación! — Paso a Paso';
-      cuerpo =
-        'Hola ' + nombreCorto + ',\n\n' +
-        '¡Excelentes noticias! 🎉\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '📚 Tu estado ha avanzado a: FORMACIÓN\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
-        'Estás iniciando tu proceso de desarrollo de habilidades técnicas.\n' +
-        'Este es un paso muy importante en tu camino al empleo. 🌟\n\n' +
-        '¡Seguimos contigo!\n' +
-        'Equipo Creamos — Programa Paso a Paso';
-    } else if (nuevoEstado === 'Completado') {
-      asunto = '🏆 ¡Completaste el programa Paso a Paso! — Creamos';
-      cuerpo =
-        'Hola ' + nombreCorto + ',\n\n' +
-        '¡FELICITACIONES! 🎊🎉\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '🏆 Has COMPLETADO el programa Paso a Paso\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
-        'Has recorrido un camino increíble y estamos muy orgullosos\n' +
-        'de tu esfuerzo y dedicación. 💪\n\n' +
-        'Recuerda que siempre puedes contar con Creamos.\n\n' +
-        '¡Mucho éxito en tu nueva etapa! 🌟\n' +
-        'Equipo Creamos — Programa Paso a Paso';
-    }
-
-    if (cuerpo) {
-      MailApp.sendEmail({
-        to: emailParticipante,
-        subject: asunto,
-        body: cuerpo,
-        replyTo: CONFIG.ADMIN_EMAIL
-      });
-    }
-  } catch(e) {
-    // Sin email o error silencioso
-  }
-}
-
-// ============================================================================
-// FIN - v8.0
+// FIN — v8.7
 // ============================================================================
