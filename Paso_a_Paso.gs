@@ -1,8 +1,9 @@
 // ============================================================================
-// SISTEMA PASO A PASO - FITO v8.3
+// SISTEMA PASO A PASO - FITO v8.4
 // Con Dashboard + Email + Alertas + Derivaciones + Historial
 // + Seguridad: credenciales en PropertiesService
 // + Validaciones: flujo de estados + campos requeridos
+// + Importación desde DP_Empleabilidad (Google Sheet externo)
 // ============================================================================
 
 const CONFIG = {
@@ -25,6 +26,17 @@ const CONFIG = {
     PERFIL: 14, PRIORIDAD: 15, PUNTAJE: 16, DIM1: 17, DIM2: 18, DIM3: 19,
     DIM4: 20, DIM5: 21, DIM6: 22, ESTADO: 23, CARPETA_ID: 24, DOC_ID: 25, DOC_URL: 26
   }
+};
+
+// DP_Empleabilidad — hoja fuente externa
+// Columnas: A=Fecha | B=ID | C=Nombre | D=Teléfono | E=Género | F=Edad
+//           G=Educación | H=DPI | I=Formación | J=Cohorte | K=Nota | L=Activo
+const DP_EMPLEABILIDAD = {
+  SPREADSHEET_ID: '1_596FX6yr8tX93UyIks4emSeE2_vxLJMDyw9Zncsnzs',
+  HOJA: 'Paso a paso',
+  NCOLS: 12,
+  C: { FECHA:0, ID:1, NOMBRE:2, TELEFONO:3, GENERO:4, EDAD:5,
+       EDUCACION:6, DPI:7, FORMACION:8, COHORTE:9, NOTA:10, ACTIVO:11 }
 };
 
 // ============================================================================
@@ -101,17 +113,17 @@ function onOpen() {
       .createMenu('📊 PASO A PASO')
       .addItem('📥 Instalar Sistema', 'instalar')
       .addSeparator()
-      .addItem('🔄 Sincronizar Kobo', 'sincronizar')
+      .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
+      .addItem('🔄 Sincronizar Kobo (opcional)', 'sincronizar')
       .addItem('🎨 Colorear Tabla', 'colorearTabla')
       .addItem('📋 Ver Ficha', 'verFicha')
       .addSeparator()
       .addItem('📊 Dashboard', 'abrirDashboard')
       .addItem('📈 Analytics', 'abrirAnalytics')
-      .addItem('➡️ Derivaciones', 'verDerivaciones')
+      .addItem('➡️ Ver Derivaciones', 'verDerivaciones')
       .addItem('🔁 Restaurar desde Drive', 'restaurarDesdeDrive')
       .addSeparator()
       .addItem('🧪 Probar Kobo', 'probarKobo')
-      .addItem('🔍 Ver Campos Kobo', 'diagnosticarCamposKobo')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
       .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
@@ -223,12 +235,156 @@ function configurarTriggers() {
 }
 
 function sincronizarAutomatico() {
-  sincronizar(true);
+  sincronizarDesdeSheet(true);
   actualizarDashboard();
 }
 
 // ============================================================================
-// SINCRONIZAR KOBO
+// IMPORTAR DESDE DP_EMPLEABILIDAD (Google Sheet externo)
+// Hoja: "Paso a paso"
+// Cols: Fecha|ID|Nombre|Teléfono|Género|Edad|Educación|DPI|Formación|Cohorte|Nota|Activo
+// ============================================================================
+
+function sincronizarDesdeSheet(silencioso) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala primero el sistema (📥 Instalar Sistema)');
+      return;
+    }
+
+    // Abrir hoja fuente externa
+    let ssExterno;
+    try {
+      ssExterno = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID);
+    } catch(e) {
+      if (!silencioso) SpreadsheetApp.getUi().alert(
+        '❌ No se puede abrir DP_Empleabilidad.\n\n' +
+        'Asegúrate de que este usuario tenga acceso al spreadsheet:\n' +
+        'ID: ' + DP_EMPLEABILIDAD.SPREADSHEET_ID
+      );
+      return;
+    }
+
+    const hojaFuente = ssExterno.getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    if (!hojaFuente) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ No existe la hoja "' + DP_EMPLEABILIDAD.HOJA + '" en DP_Empleabilidad.');
+      return;
+    }
+
+    const ultimaFila = hojaFuente.getLastRow();
+    if (ultimaFila < 2) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ La hoja "' + DP_EMPLEABILIDAD.HOJA + '" no tiene datos.');
+      return;
+    }
+
+    const datosSource = hojaFuente.getRange(2, 1, ultimaFila - 1, DP_EMPLEABILIDAD.NCOLS).getValues();
+
+    // IDs ya existentes en Maestro (para no duplicar)
+    const existentes = new Set();
+    if (hoja.getLastRow() > 1) {
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow() - 1, 1)
+        .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0]).trim()); });
+    }
+
+    const deriv = ss.getSheetByName('Derivaciones');
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    const C = DP_EMPLEABILIDAD.C;
+    const M = CONFIG.COL;
+    let agregados = 0;
+    let omitidos  = 0;
+
+    datosSource.forEach(fila => {
+      const id     = String(fila[C.ID]     || '').trim();
+      const nombre = String(fila[C.NOMBRE] || '').trim();
+
+      // Saltar filas sin ID ni nombre
+      if (!id && !nombre) return;
+
+      // Generar ID si falta (usando nombre + fecha)
+      const idFinal = id || (nombre.replace(/\s+/g,'').substring(0,4).toUpperCase() + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'ddMMyyyy'));
+
+      if (existentes.has(idFinal)) { omitidos++; return; }
+
+      const formacion = String(fila[C.FORMACION] || '').trim();
+      const cohorte   = String(fila[C.COHORTE]   || '').trim();
+      const nota      = String(fila[C.NOTA]       || '').trim();
+      const activo    = fila[C.ACTIVO];
+      const estado    = (activo === true || String(activo).toLowerCase() === 'si' ||
+                         String(activo).toLowerCase() === 'sí' || activo === 1 ||
+                         String(activo).toLowerCase() === 'true' || activo === 'Activo')
+                        ? 'Orientación' : 'Inactivo';
+
+      // Crear carpeta y expediente en Drive
+      const expediente = crearExpediente(folderBase, idFinal, nombre, {
+        perfil_asignado: '',
+        prioridad_caso: '',
+        dimension_1_capital_educativo: 0,
+        dimension_2_capital_laboral: 0,
+        dimension_3_habilidades_digitales: 0,
+        dimension_4_claridad_vocacional: 0,
+        dimension_5_barreras_estructurales: 0,
+        dimension_6_red_apoyo: 0
+      });
+
+      // Construir fila Maestro (26 columnas)
+      const filaMaestro = new Array(26).fill('');
+      filaMaestro[M.ID        - 1] = idFinal;
+      filaMaestro[M.FECHA     - 1] = fila[C.FECHA] instanceof Date ? fila[C.FECHA] : new Date();
+      filaMaestro[M.NOMBRE    - 1] = nombre;
+      filaMaestro[M.DPI       - 1] = String(fila[C.DPI]       || '').trim();
+      filaMaestro[M.EDAD      - 1] = fila[C.EDAD]  || '';
+      filaMaestro[M.GENERO    - 1] = String(fila[C.GENERO]    || '').trim();
+      filaMaestro[M.TELEFONO  - 1] = String(fila[C.TELEFONO]  || '').trim();
+      filaMaestro[M.EDUCACION - 1] = String(fila[C.EDUCACION] || '').trim();
+      filaMaestro[M.LABORAL   - 1] = formacion;                           // Formación → Situación Laboral
+      filaMaestro[M.FORTALEZAS- 1] = cohorte ? 'Cohorte: ' + cohorte : ''; // Cohorte → Fortalezas
+      filaMaestro[M.OBJETIVO  - 1] = nota;                                // Nota → Objetivo
+      filaMaestro[M.ESTADO    - 1] = estado;
+      filaMaestro[M.CARPETA_ID- 1] = expediente.carpetaId;
+      filaMaestro[M.DOC_ID    - 1] = expediente.docId;
+      filaMaestro[M.DOC_URL   - 1] = expediente.docUrl;
+
+      hoja.appendRow(filaMaestro);
+      colorearFila(hoja, hoja.getLastRow(), '');
+      existentes.add(idFinal);
+      agregados++;
+
+      // Auto-crear derivación si tiene formación asignada
+      if (deriv && formacion) {
+        const colDeriv = cohorte ? 'Cohorte ' + cohorte : '';
+        deriv.appendRow([
+          new Date(), idFinal, nombre,
+          '💡 SUGERIDA', 'Formación Técnica — ' + formacion,
+          'Participante importado de DP_Empleabilidad con formación: ' + formacion + (colDeriv ? ' | ' + colDeriv : ''),
+          'Pendiente', '', '', nota
+        ]);
+        const uf = deriv.getLastRow();
+        deriv.getRange(uf, 1, 1, 10).setBackground('#e8f5e9');
+      }
+    });
+
+    actualizarDashboard();
+    actualizarAnalytics(ss);
+
+    if (!silencioso) {
+      SpreadsheetApp.getUi().alert(
+        '✅ Importación desde DP_Empleabilidad\n\n' +
+        '👤 ' + agregados + ' participante(s) importado(s)\n' +
+        '⏭️ ' + omitidos  + ' ya existían (omitidos)\n' +
+        '📊 ' + datosSource.filter(r => r[C.NOMBRE] || r[C.ID]).length + ' registros en fuente\n\n' +
+        (agregados > 0 ? '📁 Se crearon carpetas y expedientes en Drive.\n🔔 Revisa la hoja Derivaciones.' : '')
+      );
+    }
+  } catch(e) {
+    logError('sincronizarDesdeSheet', e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error al importar: ' + e);
+  }
+}
+
+// ============================================================================
+// SINCRONIZAR KOBO (opcional — si también se usa KoboToolbox)
 // ============================================================================
 
 function sincronizar(silencioso) {
