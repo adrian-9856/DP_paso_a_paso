@@ -366,7 +366,8 @@ function sincronizarDesdeSheet(silencioso) {
       }
     }
 
-    actualizarDashboard();
+    // NO llamar actualizarDashboard() aquí — se ejecuta desde triggers automáticos
+    // Hacerlo aquí causa stack overflow cuando hay muchos datos
 
     if (!silencioso) {
       SpreadsheetApp.getUi().alert(
