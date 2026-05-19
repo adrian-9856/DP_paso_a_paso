@@ -516,18 +516,9 @@ function enviarReporteSemanal() {
 // ============================================================================
 
 function onEdit(e) {
-  // Solo registra en Log — no abre Docs (sin permisos en trigger simple)
-  try {
-    const sheet = e.source.getActiveSheet();
-    if (sheet.getName() !== CONFIG.HOJA) return;
-    const fila = e.range.getRow();
-    const columna = e.range.getColumn();
-    if (fila < 2) return;
-    const logSheet = e.source.getSheetByName('Log');
-    if (logSheet && (e.value || e.oldValue)) {
-      logSheet.appendRow([new Date(), CONFIG.HOJA, fila, columna, e.oldValue || '', e.value || '', Session.getEffectiveUser().getEmail()]);
-    }
-  } catch(err) {}
+  // Este trigger simple está deshabilitado porque manejarEdicion() es el trigger instalable
+  // que tiene todos los permisos. Dejar esto aquí vacío evita conflictos.
+  return;
 }
 
 function manejarEdicion(e) {
