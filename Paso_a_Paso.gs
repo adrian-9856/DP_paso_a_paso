@@ -147,6 +147,9 @@ function onOpen() {
       .addItem('🧪 Probar Kobo', 'probarKobo')
       .addItem('🔬 Inspeccionar Campos Kobo', 'diagnosticoCamposKobo')
       .addItem('📊 Analizar Calidad de Datos', 'analizarCalidadDatos')
+      .addItem('🔍 Ver Primer Registro Kobo', 'inspeccionarPrimerRegistroKobo')
+      .addItem('⚖️ Comparar Mapeos', 'compararMapeosKobo')
+      .addItem('📋 Exportar Muestra Kobo', 'exportarMuestraKoboASheet')
       .addItem('⚙️ Configuración', 'abrirConfiguracion')
       .addSeparator()
       .addItem('🗑️ Desinstalar & Limpiar', 'desinstalarYLimpiar')
@@ -1792,5 +1795,279 @@ function desinstalarYLimpiar() {
 }
 
 // ============================================================================
-// FIN — v8.7
+// SINCRONIZAR CON VALIDACIONES
+// ============================================================================
+
+function sincronizarConValidaciones(silencioso) {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Instala primero.');
+      return;
+    }
+
+    let apiKey;
+    try { apiKey = getKoboKey(); }
+    catch (e) { if (!silencioso) SpreadsheetApp.getUi().alert('❌ ' + e.message); return; }
+
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json',
+      { headers: { Authorization: 'Token ' + apiKey }, muteHttpExceptions: true }
+    );
+
+    if (resp.getResponseCode() !== 200) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error Kobo ' + resp.getResponseCode());
+      return;
+    }
+
+    const registros = JSON.parse(resp.getContentText()).results || [];
+    if (!registros.length) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ No hay respuestas en Kobo todavía.');
+      return;
+    }
+
+    const existentes = new Set();
+    if (hoja.getLastRow() > 1) {
+      hoja.getRange(2, CONFIG.COL.ID, hoja.getLastRow()-1, 1)
+        .getValues().forEach(r => { if (r[0]) existentes.add(String(r[0])); });
+    }
+
+    const folderBase = DriveApp.getFolderById(getFolderId());
+    const M = CONFIG.COL;
+    let agregados = 0, rechazados = 0;
+
+    registros.forEach(r => {
+      const id = String(r['creamos_id'] || r['_id'] || '');
+      if (!id || existentes.has(id)) return;
+
+      const nombre = r['nombre_completo_del_la_participante'] || '';
+      const dpi = r['numero_de_dpi_opcional'] || '';
+      const telefono = r['numero_de_telefono'] || '';
+
+      // VALIDAR CAMPOS CRÍTICOS
+      if (!nombre.trim() || !dpi.trim() || !telefono.trim()) {
+        rechazados++;
+        logError('sincronizarConValidaciones',
+          `Rechazado [${id}]: Faltan datos críticos (nombre/dpi/telefono)`);
+        return;
+      }
+
+      const fila = new Array(26).fill('');
+      fila[M.ID-1]         = id;
+      fila[M.FECHA-1]      = new Date();
+      fila[M.NOMBRE-1]     = nombre;
+      fila[M.DPI-1]        = dpi;
+      fila[M.EDAD-1]       = r['edad'] || '';
+      fila[M.GENERO-1]     = r['genero'] || '';
+      fila[M.TELEFONO-1]   = telefono;
+      fila[M.ZONA-1]       = r['lugar_de_residencia'] || '';
+      fila[M.EMAIL-1]      = r['correo_electronico_opcional'] || '';
+      fila[M.EDUCACION-1]  = r['cual_es_el_ultimo_grado_que_completaste'] || '';
+      fila[M.LABORAL-1]    = r['cual_es_tu_situacion_laboral_actual'] || '';
+      fila[M.FORTALEZAS-1] = r['que_sabes_hacer_bien'] || '';
+      fila[M.OBJETIVO-1]   = r['que_tipo_de_empleo_estas_buscando_especificamente'] || '';
+      fila[M.PERFIL-1]     = normalizarPerfil(r['perfil_asignado']);
+      fila[M.PRIORIDAD-1]  = normalizarPrioridad(r['prioridad_caso']);
+      fila[M.PUNTAJE-1]    = Number(r['puntaje_total_60']) || 0;
+      fila[M.DIM1-1]       = Number(r['dimension_1_capital_educativo']) || 0;
+      fila[M.DIM2-1]       = Number(r['dimension_2_capital_laboral']) || 0;
+      fila[M.DIM3-1]       = Number(r['dimension_3_habilidades_digitales']) || 0;
+      fila[M.DIM4-1]       = Number(r['dimension_4_claridad_vocacional']) || 0;
+      fila[M.DIM5-1]       = Number(r['dimension_5_barreras_estructurales']) || 0;
+      fila[M.DIM6-1]       = Number(r['dimension_6_red_apoyo']) || 0;
+      fila[M.ESTADO-1]     = 'Orientación';
+
+      const exp = crearExpediente(folderBase, id, nombre, fila, M);
+      fila[M.CARPETA_ID-1] = exp.carpetaId;
+      fila[M.DOC_ID-1]     = exp.docId;
+      fila[M.DOC_URL-1]    = exp.docUrl;
+
+      hoja.appendRow(fila);
+      colorearFila(hoja, hoja.getLastRow(), fila[M.PERFIL-1]);
+      registrarDerivacionesAutomaticas(ss, id, nombre, fila, M);
+      existentes.add(id);
+      agregados++;
+    });
+
+    if (!silencioso) {
+      SpreadsheetApp.getUi().alert(`✅ Sincronización completada\n📥 ${agregados} nuevos\n📊 ${registros.length} total en Kobo${rechazados > 0 ? `\n🔴 ${rechazados} rechazados` : ''}`);
+    }
+  } catch(e) {
+    logError('sincronizarConValidaciones', e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+  }
+}
+
+// ============================================================================
+// INSPECTOR DE DATOS KOBO — Descubre qué información realmente envía tu form
+// ============================================================================
+
+function inspeccionarPrimerRegistroKobo() {
+  try {
+    const key = getKoboKey();
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
+      { headers: { Authorization: 'Token ' + key }, muteHttpExceptions: true }
+    );
+
+    if (resp.getResponseCode() !== 200) {
+      SpreadsheetApp.getUi().alert('❌ Error: ' + resp.getResponseCode());
+      return;
+    }
+
+    const primer = JSON.parse(resp.getContentText()).results[0] || {};
+
+    let reporte = '📋 PRIMER REGISTRO KOBO — QUÉ DATOS TIENES\n';
+    reporte += '═════════════════════════════════════════════\n\n';
+
+    // Separar por si tienen datos
+    const conDatos = {};
+    const sinDatos = [];
+
+    Object.entries(primer).forEach(([clave, valor]) => {
+      if (clave.startsWith('_')) return;
+      if (valor && valor.toString().trim() !== '') {
+        conDatos[clave] = valor;
+      } else {
+        sinDatos.push(clave);
+      }
+    });
+
+    reporte += '✅ CAMPOS CON DATOS (' + Object.keys(conDatos).length + '):\n';
+    Object.entries(conDatos).forEach(([clave, valor]) => {
+      const txt = String(valor).substring(0, 40);
+      reporte += `  • ${clave}\n    → ${txt}\n`;
+    });
+
+    reporte += '\n❌ CAMPOS VACÍOS (' + sinDatos.length + '):\n';
+    sinDatos.slice(0, 10).forEach(c => {
+      reporte += `  • ${c}\n`;
+    });
+
+    SpreadsheetApp.getUi().alert(reporte);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('inspeccionarPrimerRegistroKobo', e);
+  }
+}
+
+function compararMapeosKobo() {
+  try {
+    const key = getKoboKey();
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=1',
+      { headers: { Authorization: 'Token ' + key }, muteHttpExceptions: true }
+    );
+
+    if (resp.getResponseCode() !== 200) {
+      SpreadsheetApp.getUi().alert('❌ Error: ' + resp.getResponseCode());
+      return;
+    }
+
+    const primer = JSON.parse(resp.getContentText()).results[0] || {};
+    const camposReales = Object.keys(primer);
+
+    // Campos que el código BUSCA actualmente
+    const MAPEOS_ESPERADOS = {
+      'Nombre': 'nombre_completo_del_la_participante',
+      'DPI': 'numero_de_dpi_opcional',
+      'Edad': 'edad',
+      'Teléfono': 'numero_de_telefono',
+      'Email': 'correo_electronico_opcional',
+      'Educación': 'cual_es_el_ultimo_grado_que_completaste',
+      'Laboral': 'cual_es_tu_situacion_laboral_actual',
+      'Fortalezas': 'que_sabes_hacer_bien',
+      'Objetivo': 'que_tipo_de_empleo_estas_buscando_especificamente'
+    };
+
+    let reporte = '⚖️ COMPARACIÓN: CÓDIGO vs TU KOBO\n';
+    reporte += '═════════════════════════════════════════════\n\n';
+
+    let ok = 0, falta = 0;
+
+    Object.entries(MAPEOS_ESPERADOS).forEach(([nombreSistema, nombreKobo]) => {
+      const existe = camposReales.includes(nombreKobo);
+      if (existe) {
+        reporte += `✅ ${nombreSistema.padEnd(12)} OK\n`;
+        ok++;
+      } else {
+        reporte += `❌ ${nombreSistema.padEnd(12)} NO EXISTE\n    Busca: "${nombreKobo}"\n`;
+        falta++;
+      }
+    });
+
+    reporte += `\n✅ ${ok} correctos  |  ❌ ${falta} faltantes\n`;
+
+    if (falta > 0) {
+      reporte += '\n💡 SOLUCIÓN:\n';
+      reporte += '1. Haz click en "📋 Exportar Muestra Kobo"\n';
+      reporte += '2. Mira la nueva hoja "INSPECCION_KOBO"\n';
+      reporte += '3. Copia los nombres EXACTOS de los campos\n';
+      reporte += '4. Actualiza Paso_a_Paso.gs línea ~590\n';
+    }
+
+    SpreadsheetApp.getUi().alert(reporte);
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('compararMapeosKobo', e);
+  }
+}
+
+function exportarMuestraKoboASheet() {
+  try {
+    const key = getKoboKey();
+    const resp = UrlFetchApp.fetch(
+      CONFIG.KOBO_URL + '/assets/' + CONFIG.KOBO_ASSET_ID + '/data/?format=json&limit=10',
+      { headers: { Authorization: 'Token ' + key }, muteHttpExceptions: true }
+    );
+
+    if (resp.getResponseCode() !== 200) {
+      SpreadsheetApp.getUi().alert('❌ Error: ' + resp.getResponseCode());
+      return;
+    }
+
+    const registros = JSON.parse(resp.getContentText()).results || [];
+    const ss = SpreadsheetApp.getActive();
+
+    // Crear nueva hoja
+    let hojaIns = ss.getSheetByName('INSPECCION_KOBO');
+    if (hojaIns) ss.deleteSheet(hojaIns);
+    hojaIns = ss.insertSheet('INSPECCION_KOBO');
+
+    // Obtener campos únicos
+    const camposUnicos = new Set();
+    registros.forEach(r => {
+      Object.keys(r).forEach(k => {
+        if (!k.startsWith('_')) camposUnicos.add(k);
+      });
+    });
+
+    const campos = Array.from(camposUnicos).sort();
+
+    // Encabezados
+    hojaIns.appendRow(campos);
+    hojaIns.getRange(1, 1, 1, campos.length).setFontWeight('bold').setBackground('#4285F4').setFontColor('white');
+
+    // Datos (primeros 10)
+    registros.forEach(r => {
+      const fila = campos.map(c => r[c] || '');
+      hojaIns.appendRow(fila);
+    });
+
+    SpreadsheetApp.getUi().alert(
+      `✅ Creada hoja "INSPECCION_KOBO"\n\n` +
+      `📊 ${registros.length} registros de muestra\n` +
+      `📋 ${campos.length} campos distintos\n\n` +
+      `Ahora puedes ver exactamente qué datos tiene tu Kobo.`
+    );
+
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('exportarMuestraKoboASheet', e);
+  }
+}
+
+// ============================================================================
+// FIN — v8.7 + Mejoras Inspección
 // ============================================================================
