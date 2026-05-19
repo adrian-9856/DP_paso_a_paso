@@ -583,21 +583,21 @@ function sincronizar(silencioso) {
       const id = String(r['creamos_id'] || r['_id'] || '');
       if (!id || existentes.has(id)) return;
 
-      const nombre = r['nombre_completo_del_la_participante'] || 'Participante ' + id;
+      const nombre = r['nombre_completo'] || 'Participante ' + id;
       const fila   = new Array(26).fill('');
       fila[M.ID-1]         = id;
       fila[M.FECHA-1]      = new Date();
       fila[M.NOMBRE-1]     = nombre;
-      fila[M.DPI-1]        = r['numero_de_dpi_opcional']                             || '';
-      fila[M.EDAD-1]       = r['edad']                                               || '';
-      fila[M.GENERO-1]     = r['genero']                                             || '';
-      fila[M.TELEFONO-1]   = r['numero_de_telefono']                                 || '';
-      fila[M.ZONA-1]       = r['lugar_de_residencia']                                || '';
-      fila[M.EMAIL-1]      = r['correo_electronico_opcional']                        || '';
-      fila[M.EDUCACION-1]  = r['cual_es_el_ultimo_grado_que_completaste']            || '';
-      fila[M.LABORAL-1]    = r['cual_es_tu_situacion_laboral_actual']                || '';
-      fila[M.FORTALEZAS-1] = r['que_sabes_hacer_bien']                               || '';
-      fila[M.OBJETIVO-1]   = r['que_tipo_de_empleo_estas_buscando_especificamente']  || '';
+      fila[M.DPI-1]        = r['numero_dpi']                      || '';
+      fila[M.EDAD-1]       = r['edad']                            || '';
+      fila[M.GENERO-1]     = r['genero']                          || '';
+      fila[M.TELEFONO-1]   = r['telefono']                        || '';
+      fila[M.ZONA-1]       = r['lugar_residencia']                || '';
+      fila[M.EMAIL-1]      = r['email']                           || '';
+      fila[M.EDUCACION-1]  = r['ultimo_grado_aprobado']           || '';
+      fila[M.LABORAL-1]    = r['situacion_laboral_actual']        || '';
+      fila[M.FORTALEZAS-1] = r['habilidades_especificas']         || '';
+      fila[M.OBJETIVO-1]   = r['objetivo_laboral_especifico']     || '';
       fila[M.PERFIL-1]     = normalizarPerfil(r['perfil_asignado']);
       fila[M.PRIORIDAD-1]  = normalizarPrioridad(r['prioridad_caso']);
       fila[M.PUNTAJE-1]    = Number(r['puntaje_total_60'])                           || 0;
@@ -1841,9 +1841,9 @@ function sincronizarConValidaciones(silencioso) {
       const id = String(r['creamos_id'] || r['_id'] || '');
       if (!id || existentes.has(id)) return;
 
-      const nombre = r['nombre_completo_del_la_participante'] || '';
-      const dpi = r['numero_de_dpi_opcional'] || '';
-      const telefono = r['numero_de_telefono'] || '';
+      const nombre   = r['nombre_completo'] || '';
+      const dpi      = r['numero_dpi']     || '';
+      const telefono = r['telefono']       || '';
 
       // VALIDAR CAMPOS CRÍTICOS
       if (!nombre.trim() || !dpi.trim() || !telefono.trim()) {
@@ -1858,15 +1858,15 @@ function sincronizarConValidaciones(silencioso) {
       fila[M.FECHA-1]      = new Date();
       fila[M.NOMBRE-1]     = nombre;
       fila[M.DPI-1]        = dpi;
-      fila[M.EDAD-1]       = r['edad'] || '';
-      fila[M.GENERO-1]     = r['genero'] || '';
+      fila[M.EDAD-1]       = r['edad']                        || '';
+      fila[M.GENERO-1]     = r['genero']                      || '';
       fila[M.TELEFONO-1]   = telefono;
-      fila[M.ZONA-1]       = r['lugar_de_residencia'] || '';
-      fila[M.EMAIL-1]      = r['correo_electronico_opcional'] || '';
-      fila[M.EDUCACION-1]  = r['cual_es_el_ultimo_grado_que_completaste'] || '';
-      fila[M.LABORAL-1]    = r['cual_es_tu_situacion_laboral_actual'] || '';
-      fila[M.FORTALEZAS-1] = r['que_sabes_hacer_bien'] || '';
-      fila[M.OBJETIVO-1]   = r['que_tipo_de_empleo_estas_buscando_especificamente'] || '';
+      fila[M.ZONA-1]       = r['lugar_residencia']            || '';
+      fila[M.EMAIL-1]      = r['email']                       || '';
+      fila[M.EDUCACION-1]  = r['ultimo_grado_aprobado']       || '';
+      fila[M.LABORAL-1]    = r['situacion_laboral_actual']    || '';
+      fila[M.FORTALEZAS-1] = r['habilidades_especificas']     || '';
+      fila[M.OBJETIVO-1]   = r['objetivo_laboral_especifico'] || '';
       fila[M.PERFIL-1]     = normalizarPerfil(r['perfil_asignado']);
       fila[M.PRIORIDAD-1]  = normalizarPrioridad(r['prioridad_caso']);
       fila[M.PUNTAJE-1]    = Number(r['puntaje_total_60']) || 0;
@@ -1970,15 +1970,26 @@ function compararMapeosKobo() {
 
     // Campos que el código BUSCA actualmente
     const MAPEOS_ESPERADOS = {
-      'Nombre': 'nombre_completo_del_la_participante',
-      'DPI': 'numero_de_dpi_opcional',
-      'Edad': 'edad',
-      'Teléfono': 'numero_de_telefono',
-      'Email': 'correo_electronico_opcional',
-      'Educación': 'cual_es_el_ultimo_grado_que_completaste',
-      'Laboral': 'cual_es_tu_situacion_laboral_actual',
-      'Fortalezas': 'que_sabes_hacer_bien',
-      'Objetivo': 'que_tipo_de_empleo_estas_buscando_especificamente'
+      'Nombre':     'nombre_completo',
+      'DPI':        'numero_dpi',
+      'Edad':       'edad',
+      'Género':     'genero',
+      'Teléfono':   'telefono',
+      'Zona':       'lugar_residencia',
+      'Email':      'email',
+      'Educación':  'ultimo_grado_aprobado',
+      'Laboral':    'situacion_laboral_actual',
+      'Fortalezas': 'habilidades_especificas',
+      'Objetivo':   'objetivo_laboral_especifico',
+      'Perfil':     'perfil_asignado',
+      'Prioridad':  'prioridad_caso',
+      'Puntaje':    'puntaje_total_60',
+      'Dim1':       'dimension_1_capital_educativo',
+      'Dim2':       'dimension_2_capital_laboral',
+      'Dim3':       'dimension_3_habilidades_digitales',
+      'Dim4':       'dimension_4_claridad_vocacional',
+      'Dim5':       'dimension_5_barreras_estructurales',
+      'Dim6':       'dimension_6_red_apoyo'
     };
 
     let reporte = '⚖️ COMPARACIÓN: CÓDIGO vs TU KOBO\n';
