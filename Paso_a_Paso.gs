@@ -950,107 +950,244 @@ function actualizarAnalytics(ss) {
 // VER FICHA DEL PARTICIPANTE
 // ============================================================================
 
+// Abre la app de fichas — no requiere seleccionar fila
 function verFicha() {
   try {
-    const ss    = SpreadsheetApp.getActive();
-    const rango = ss.getActiveRange();
-    if (rango.getSheet().getName() !== CONFIG.HOJA) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila en la hoja Maestro.');
-      return;
-    }
-    if (rango.getRow() < 2) {
-      SpreadsheetApp.getUi().alert('⚠️ Selecciona una fila de datos, no el encabezado.');
-      return;
-    }
-    const datos = rango.getSheet().getRange(rango.getRow(), 1, 1, 26).getValues()[0];
-    if (!datos[0]) { SpreadsheetApp.getUi().alert('⚠️ Fila vacía.'); return; }
-    mostrarFicha(datos);
+    const html = HtmlService.createHtmlOutput(FICHA_HTML)
+      .setTitle('👤 Participantes').setWidth(380);
+    SpreadsheetApp.getUi().showSidebar(html);
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
-function mostrarFicha(datos) {
-  const C        = CONFIG.COL;
-  const nombre   = datos[C.NOMBRE-1]     || '—';
-  const perfil   = datos[C.PERFIL-1]     || 'Sin perfil';
-  const priorid  = datos[C.PRIORIDAD-1]  || 'Sin prioridad';
-  const puntaje  = datos[C.PUNTAJE-1]    || 0;
-  const estado   = datos[C.ESTADO-1]     || 'Orientación';
-  const docUrl   = datos[C.DOC_URL-1]    || '';
-  const dims     = [C.DIM1,C.DIM2,C.DIM3,C.DIM4,C.DIM5,C.DIM6].map(k => Number(datos[k-1])||0);
-
-  const col  = CONFIG.COLORES[perfil] || {fondo:'#f5f5f5',texto:'#333'};
-  const cP   = priorid==='CRÍTICO'?'#c62828':priorid==='ALTO'?'#e65100':priorid==='MEDIO'?'#f9a825':'#388e3c';
-  const ini  = nombre.split(' ').slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
-  const pct  = Math.min(100, Math.round((puntaje/60)*100));
-  const docB = docUrl
-    ? '<a href="'+docUrl+'" target="_blank" style="display:block;text-align:center;background:#1a237e;color:#fff;padding:9px 12px;border-radius:5px;margin:10px 0 0;text-decoration:none;font-size:12px;font-weight:bold">📄 Abrir Expediente en Drive</a>'
-    : '';
-
-  const lbs  = ['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
-  const barras = lbs.map((lb,i) =>
-    '<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:10px;color:#777;margin-bottom:2px"><span>'+lb+'</span><span>'+dims[i]+'/10</span></div><div style="background:#e8eaf6;border-radius:3px;height:5px"><div style="width:'+Math.round(dims[i]*10)+'%;background:'+col.texto+';height:5px;border-radius:3px"></div></div></div>'
-  ).join('');
-
-  // SVG radar
-  const cx=85,cy=85,r=65,ang=[-90,-30,30,90,150,210],lbsR=['Educ','Labor','Digit','Vocal','Barr','Apoyo'];
-  let svg='<svg width="170" height="170" viewBox="0 0 170 170">';
-  [0.33,0.66,1].forEach(n=>{
-    const pts=ang.map(a=>{const rad=a*Math.PI/180;return(cx+r*n*Math.cos(rad)).toFixed(1)+','+(cy+r*n*Math.sin(rad)).toFixed(1);}).join(' ');
-    svg+='<polygon points="'+pts+'" fill="none" stroke="#e0e0e0" stroke-width="1"/>';
-  });
-  ang.forEach(a=>{const rad=a*Math.PI/180;svg+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+r*Math.cos(rad)).toFixed(1)+'" y2="'+(cy+r*Math.sin(rad)).toFixed(1)+'" stroke="#e0e0e0" stroke-width="1"/>';});
-  const dpts=ang.map((a,i)=>{const rad=a*Math.PI/180,esc=dims[i]/10;return(cx+r*esc*Math.cos(rad)).toFixed(1)+','+(cy+r*esc*Math.sin(rad)).toFixed(1);}).join(' ');
-  ang.forEach((a,i)=>{const rad=a*Math.PI/180;svg+='<text x="'+(cx+(r+14)*Math.cos(rad)).toFixed(1)+'" y="'+(cy+(r+14)*Math.sin(rad)).toFixed(1)+'" text-anchor="middle" font-size="8" fill="#777">'+lbsR[i]+'</text>';});
-  svg+='<polygon points="'+dpts+'" fill="'+col.texto+'33" stroke="'+col.texto+'" stroke-width="2"/></svg>';
-
-  const campo = (lbl, val) =>
-    '<div class="row"><span class="rl">'+lbl+'</span><span class="rv">'+escaparHtml(String(val||'—'))+'</span></div>';
-
-  const html = HtmlService.createHtmlOutput(
-    '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
-    '*{margin:0;padding:0;box-sizing:border-box}' +
-    'body{font-family:Arial,sans-serif;font-size:13px;background:#f5f7ff;color:#333}' +
-    '.hdr{background:'+col.fondo+';padding:14px 16px;border-left:5px solid '+col.texto+';display:flex;gap:12px;align-items:center}' +
-    '.av{width:50px;height:50px;border-radius:50%;background:'+col.texto+';color:#fff;font-size:17px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0}' +
-    '.nom{font-size:14px;font-weight:bold;color:'+col.texto+';line-height:1.3}' +
-    '.tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}' +
-    '.tag{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold}' +
-    '.tp{background:'+col.texto+';color:'+col.fondo+'}.tpr{background:'+cP+';color:#fff}.te{background:#e0e0e0;color:#555}' +
-    '.prog{padding:10px 16px;background:#fff;border-bottom:1px solid #e8eaf6}' +
-    '.pl{display:flex;justify-content:space-between;font-size:11px;color:#9e9e9e;margin-bottom:4px}' +
-    '.pb{height:8px;background:#e8eaf6;border-radius:4px;overflow:hidden}' +
-    '.pf{height:8px;background:'+col.texto+';width:'+pct+'%;border-radius:4px}' +
-    '.sec{padding:10px 16px;background:#fff;border-bottom:1px solid #f0f0f0}' +
-    '.sh{font-size:9px;font-weight:bold;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}' +
-    '.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}' +
-    '.rl{color:#777;flex-shrink:0;margin-right:8px}.rv{color:#333;font-weight:500;text-align:right}' +
-    '.desc{font-size:12px;color:#444;line-height:1.5}' +
-    '</style></head><body>' +
-    '<div class="hdr"><div class="av">'+ini+'</div><div><div class="nom">'+escaparHtml(nombre)+'</div>' +
-    '<div class="tags"><span class="tag tp">'+escaparHtml(perfil)+'</span>' +
-    '<span class="tag tpr">'+escaparHtml(priorid)+'</span>' +
-    '<span class="tag te">'+escaparHtml(estado)+'</span></div></div></div>' +
-    '<div class="prog"><div class="pl"><span>Puntaje diagnóstico</span><span>'+puntaje+' / 60</span></div>' +
-    '<div class="pb"><div class="pf"></div></div></div>' +
-    '<div class="sec"><div class="sh">Datos Personales</div>' +
-    campo('DPI',      datos[C.DPI-1]) +
-    campo('Edad',     datos[C.EDAD-1]) +
-    campo('Género',   datos[C.GENERO-1]) +
-    campo('Teléfono', datos[C.TELEFONO-1]) +
-    campo('Zona',     datos[C.ZONA-1]) +
-    campo('Email',    datos[C.EMAIL-1]) + '</div>' +
-    '<div class="sec"><div class="sh">Perfil Profesional</div>' +
-    campo('Educación',         datos[C.EDUCACION-1]) +
-    campo('Situación laboral', datos[C.LABORAL-1]) + '</div>' +
-    '<div class="sec"><div class="sh">Fortalezas</div><div class="desc">'+escaparHtml(String(datos[C.FORTALEZAS-1]||'—'))+'</div></div>' +
-    '<div class="sec"><div class="sh">Objetivo laboral</div><div class="desc">'+escaparHtml(String(datos[C.OBJETIVO-1]||'—'))+'</div></div>' +
-    '<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>' +
-    '<div style="display:flex;justify-content:center;margin:6px 0">'+svg+'</div>' +
-    barras + docB + '</div></body></html>'
-  ).setTitle('Perfil — '+nombre).setWidth(360);
-
-  SpreadsheetApp.getUi().showSidebar(html);
+// Llamado desde el sidebar para obtener todos los participantes
+function obtenerParticipantes() {
+  const hoja = SpreadsheetApp.getActive().getSheetByName(CONFIG.HOJA);
+  if (!hoja || hoja.getLastRow() < 2) return [];
+  const M    = CONFIG.COL;
+  const rows = hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues();
+  return rows
+    .filter(r => r[0])
+    .map(r => ({
+      id:        String(r[M.ID-1]        || ''),
+      nombre:    String(r[M.NOMBRE-1]    || ''),
+      perfil:    String(r[M.PERFIL-1]    || ''),
+      prioridad: String(r[M.PRIORIDAD-1] || ''),
+      puntaje:   Number(r[M.PUNTAJE-1])  || 0,
+      estado:    String(r[M.ESTADO-1]    || ''),
+      dpi:       String(r[M.DPI-1]       || ''),
+      edad:      String(r[M.EDAD-1]      || ''),
+      genero:    String(r[M.GENERO-1]    || ''),
+      telefono:  String(r[M.TELEFONO-1]  || ''),
+      zona:      String(r[M.ZONA-1]      || ''),
+      email:     String(r[M.EMAIL-1]     || ''),
+      educacion: String(r[M.EDUCACION-1] || ''),
+      laboral:   String(r[M.LABORAL-1]   || ''),
+      fortalezas:String(r[M.FORTALEZAS-1]|| ''),
+      objetivo:  String(r[M.OBJETIVO-1]  || ''),
+      docUrl:    String(r[M.DOC_URL-1]   || ''),
+      dims: [
+        Number(r[M.DIM1-1])||0, Number(r[M.DIM2-1])||0,
+        Number(r[M.DIM3-1])||0, Number(r[M.DIM4-1])||0,
+        Number(r[M.DIM5-1])||0, Number(r[M.DIM6-1])||0
+      ]
+    }));
 }
+
+// HTML completo de la app de fichas (lista + perfil en una sola página)
+const FICHA_HTML = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+'*{margin:0;padding:0;box-sizing:border-box}' +
+'body{font-family:Arial,sans-serif;font-size:12px;background:#f5f7ff;color:#333;overflow-x:hidden}' +
+
+// Vista lista
+'#vistaLista{display:block}' +
+'#vistaPerfil{display:none}' +
+'.topbar{background:#1a237e;color:#fff;padding:12px 14px;display:flex;align-items:center;gap:8px}' +
+'.topbar h2{font-size:13px;font-weight:bold;flex:1}' +
+'.topbar span{font-size:11px;opacity:.75}' +
+'.buscar{padding:10px 12px;background:#fff;border-bottom:1px solid #e8eaf6}' +
+'.buscar input{width:100%;padding:8px 10px;border:1px solid #c5cae9;border-radius:20px;font-size:12px;outline:none}' +
+'.buscar input:focus{border-color:#1a237e}' +
+'.filtros{padding:6px 12px;background:#fff;border-bottom:1px solid #e8eaf6;display:flex;gap:4px;flex-wrap:wrap}' +
+'.btn-filtro{padding:3px 9px;border-radius:12px;font-size:10px;font-weight:bold;border:1.5px solid #c5cae9;background:#fff;cursor:pointer;color:#555}' +
+'.btn-filtro.activo{background:#1a237e;color:#fff;border-color:#1a237e}' +
+'.lista{overflow-y:auto}' +
+'.card{padding:10px 14px;background:#fff;border-bottom:1px solid #f0f2ff;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .15s}' +
+'.card:hover{background:#e8eaf6}' +
+'.av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;flex-shrink:0}' +
+'.ci{flex:1;min-width:0}' +
+'.cn{font-size:12px;font-weight:bold;color:#1a237e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+'.cs{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}' +
+'.tag{padding:1px 7px;border-radius:9px;font-size:9px;font-weight:bold}' +
+'.tA{background:#d9ead3;color:#274e13}.tB{background:#cfe2f3;color:#1c4587}' +
+'.tC{background:#fff2cc;color:#7f6000}.tD{background:#f4cccc;color:#660000}.tX{background:#f5f5f5;color:#777}' +
+'.tE{background:#e8eaf6;color:#3949ab}.tURG{background:#c62828;color:#fff}' +
+'.pt{font-size:10px;color:#9e9e9e;flex-shrink:0;text-align:right}' +
+'.vacio{padding:40px 20px;text-align:center;color:#9e9e9e}' +
+
+// Vista perfil
+'.back{display:flex;align-items:center;gap:6px;padding:10px 14px;background:#fff;border-bottom:1px solid #e8eaf6;cursor:pointer;color:#1a237e;font-size:12px;font-weight:bold}' +
+'.back:hover{background:#e8eaf6}' +
+'.phdr{padding:14px 16px;border-left:5px solid var(--pc);background:var(--pb);display:flex;gap:12px;align-items:center}' +
+'.pav{width:48px;height:48px;border-radius:50%;background:var(--pc);color:var(--pb);font-size:16px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex-shrink:0}' +
+'.pnom{font-size:13px;font-weight:bold;color:var(--pc);line-height:1.3}' +
+'.ptags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}' +
+'.prog{padding:8px 14px;background:#fff;border-bottom:1px solid #e8eaf6}' +
+'.pbar-l{display:flex;justify-content:space-between;font-size:10px;color:#9e9e9e;margin-bottom:3px}' +
+'.pbar-bg{height:7px;background:#e8eaf6;border-radius:4px;overflow:hidden}' +
+'.pbar-fg{height:7px;background:var(--pc);border-radius:4px}' +
+'.sec{padding:8px 14px;background:#fff;border-bottom:1px solid #f0f2ff}' +
+'.sh{font-size:9px;font-weight:bold;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}' +
+'.frow{display:flex;justify-content:space-between;padding:2px 0;font-size:11px}' +
+'.fl{color:#888;flex-shrink:0;margin-right:6px}.fv{color:#333;font-weight:500;text-align:right;word-break:break-word}' +
+'.txt{font-size:11px;color:#444;line-height:1.5}' +
+'.dim-bar{margin:3px 0}' +
+'.dim-bar .dl{display:flex;justify-content:space-between;font-size:10px;color:#777;margin-bottom:2px}' +
+'.dim-bar .db{height:5px;background:#e8eaf6;border-radius:3px;overflow:hidden}' +
+'.dim-bar .df{height:5px;border-radius:3px;background:var(--pc)}' +
+'.docbtn{display:block;text-align:center;background:#1a237e;color:#fff;padding:9px;border-radius:5px;margin:8px 14px;text-decoration:none;font-size:12px;font-weight:bold}' +
+'</style></head><body>' +
+
+// === VISTA LISTA ===
+'<div id="vistaLista">' +
+'<div class="topbar"><h2>👤 Participantes</h2><span id="contador">Cargando...</span></div>' +
+'<div class="buscar"><input id="buscar" placeholder="🔍 Buscar por nombre, ID, zona..." oninput="filtrar()"></div>' +
+'<div class="filtros">' +
+'<button class="btn-filtro activo" onclick="setPerfil(this,\'\')">Todos</button>' +
+'<button class="btn-filtro" onclick="setPerfil(this,\'Perfil A\')" style="color:#274e13;border-color:#a8d5a2">A</button>' +
+'<button class="btn-filtro" onclick="setPerfil(this,\'Perfil B\')" style="color:#1c4587;border-color:#9bbfe0">B</button>' +
+'<button class="btn-filtro" onclick="setPerfil(this,\'Perfil C\')" style="color:#7f6000;border-color:#f0d060">C</button>' +
+'<button class="btn-filtro" onclick="setPerfil(this,\'Perfil D\')" style="color:#660000;border-color:#e08080">D</button>' +
+'<button class="btn-filtro" onclick="setEstado(this,\'Orientación\')">Orient.</button>' +
+'<button class="btn-filtro" onclick="setEstado(this,\'Mentoría\')">Ment.</button>' +
+'<button class="btn-filtro" onclick="setEstado(this,\'Formación\')">Form.</button>' +
+'<button class="btn-filtro" onclick="setEstado(this,\'Inactivo\')">Inact.</button>' +
+'</div>' +
+'<div class="lista" id="lista"></div>' +
+'</div>' +
+
+// === VISTA PERFIL ===
+'<div id="vistaPerfil">' +
+'<div class="back" onclick="volverLista()">← Volver a la lista</div>' +
+'<div id="perfilContenido"></div>' +
+'</div>' +
+
+'<script>' +
+'var todos=[], filtroP="", filtroE="";' +
+
+'function init(){' +
+'  google.script.run.withSuccessHandler(function(data){' +
+'    todos=data;' +
+'    filtrar();' +
+'  }).obtenerParticipantes();' +
+'}' +
+
+'function filtrar(){' +
+'  var q=document.getElementById("buscar").value.toLowerCase();' +
+'  var res=todos.filter(function(p){' +
+'    var ok=(p.nombre.toLowerCase().includes(q)||p.id.toLowerCase().includes(q)||p.zona.toLowerCase().includes(q));' +
+'    if(filtroP&&p.perfil!==filtroP)ok=false;' +
+'    if(filtroE&&p.estado!==filtroE)ok=false;' +
+'    return ok;' +
+'  });' +
+'  renderLista(res);' +
+'}' +
+
+'function setPerfil(btn,v){' +
+'  filtroP=v; filtroE="";' +
+'  document.querySelectorAll(".btn-filtro").forEach(function(b){b.classList.remove("activo");});' +
+'  btn.classList.add("activo");' +
+'  filtrar();' +
+'}' +
+
+'function setEstado(btn,v){' +
+'  filtroE=v; filtroP="";' +
+'  document.querySelectorAll(".btn-filtro").forEach(function(b){b.classList.remove("activo");});' +
+'  btn.classList.add("activo");' +
+'  filtrar();' +
+'}' +
+
+'var COLORES={' +
+'  "Perfil A":{fondo:"#d9ead3",texto:"#274e13",cls:"tA"},' +
+'  "Perfil B":{fondo:"#cfe2f3",texto:"#1c4587",cls:"tB"},' +
+'  "Perfil C":{fondo:"#fff2cc",texto:"#7f6000",cls:"tC"},' +
+'  "Perfil D":{fondo:"#f4cccc",texto:"#660000",cls:"tD"}' +
+'};' +
+
+'function renderLista(res){' +
+'  document.getElementById("contador").textContent=res.length+" / "+todos.length;' +
+'  var el=document.getElementById("lista");' +
+'  if(!res.length){el.innerHTML=\'<div class="vacio">Sin participantes<br><small>Prueba otra búsqueda o filtro</small></div>\';return;}' +
+'  el.innerHTML=res.map(function(p,i){' +
+'    var c=COLORES[p.perfil]||{fondo:"#f5f5f5",texto:"#555",cls:"tX"};' +
+'    var ini=p.nombre.split(" ").slice(0,2).map(function(s){return s[0]||"";}).join("").toUpperCase();' +
+'    var urgTag=p.prioridad==="CRÍTICO"?"<span class=\'tag tURG\'>URGENTE</span>":"";' +
+'    return \'<div class="card" onclick="verPerfil(\'+i+\')">\'+' +
+'    \'<div class="av" style="background:\'+c.texto+\';color:\'+c.fondo+\'">\'+ini+\'</div>\'+' +
+'    \'<div class="ci"><div class="cn">\'+esc(p.nombre)+\'</div>\'+' +
+'    \'<div class="cs"><span class="tag \'+c.cls+\'">\'+esc(p.perfil||"Sin perfil")+\'</span>\'+' +
+'    \'<span class="tag tE">\'+esc(p.estado)+\'</span>\'+urgTag+\'</div></div>\'+' +
+'    \'<div class="pt">\'+p.puntaje+\'<br><small>pts</small></div></div>\';' +
+'  }).join("");' +
+'}' +
+
+'function verPerfil(idx){' +
+'  var p=filtroP||filtroE' +
+'    ? document.getElementById("lista").querySelectorAll(".card")[idx]' +
+'    : null;' +
+'  var res=todos.filter(function(x){' +
+'    var q=document.getElementById("buscar").value.toLowerCase();' +
+'    var ok=(x.nombre.toLowerCase().includes(q)||x.id.toLowerCase().includes(q)||x.zona.toLowerCase().includes(q));' +
+'    if(filtroP&&x.perfil!==filtroP)ok=false;' +
+'    if(filtroE&&x.estado!==filtroE)ok=false;' +
+'    return ok;' +
+'  });' +
+'  var p=res[idx];' +
+'  if(!p)return;' +
+'  document.getElementById("vistaLista").style.display="none";' +
+'  document.getElementById("vistaPerfil").style.display="block";' +
+'  document.getElementById("perfilContenido").innerHTML=renderPerfil(p);' +
+'}' +
+
+'function volverLista(){' +
+'  document.getElementById("vistaLista").style.display="block";' +
+'  document.getElementById("vistaPerfil").style.display="none";' +
+'}' +
+
+'function renderPerfil(p){' +
+'  var c=COLORES[p.perfil]||{fondo:"#f5f5f5",texto:"#555"};' +
+'  var cP=p.prioridad==="CRÍTICO"?"#c62828":p.prioridad==="ALTO"?"#e65100":p.prioridad==="MEDIO"?"#f9a825":"#388e3c";' +
+'  var ini=p.nombre.split(" ").slice(0,2).map(function(s){return s[0]||"";}).join("").toUpperCase();' +
+'  var pct=Math.min(100,Math.round((p.puntaje/60)*100));' +
+'  var lbs=["Educativo","Laboral","Digital","Vocacional","Barreras","Red Apoyo"];' +
+'  var dimHtml=p.dims.map(function(v,i){' +
+'    return\'<div class="dim-bar"><div class="dl"><span>\'+lbs[i]+"</span><span>"+v+"/10</span></div><div class=\'db\'><div class=\'df\' style=\'width:\'+Math.round(v*10)+\'%\'></div></div></div>\';' +
+'  }).join("");' +
+'  var docBtn=p.docUrl?\'<a href="\'+p.docUrl+\'" target="_blank" class="docbtn">📄 Abrir Expediente en Drive</a>\':"";\n' +
+'  var f=function(l,v){return\'<div class="frow"><span class="fl">\'+l+\'</span><span class="fv">\'+esc(v||"—")+\'</span></div>\';};' +
+'  return \'<div style="--pc:\'+c.texto+\';--pb:\'+c.fondo+\'">\'+' +
+'    \'<div class="phdr"><div class="pav">\'+ini+\'</div><div>\'+' +
+'    \'<div class="pnom">\'+esc(p.nombre)+\'</div>\'+' +
+'    \'<div class="ptags">\'+' +
+'    \'<span class="tag" style="background:\'+c.texto+\';color:\'+c.fondo+\'">\'+esc(p.perfil||"Sin perfil")+\'</span> \'+' +
+'    \'<span class="tag" style="background:\'+cP+\';color:#fff">\'+esc(p.prioridad||"—")+\'</span> \'+' +
+'    \'<span class="tag tE">\'+esc(p.estado)+\'</span>\'+' +
+'    \'</div></div></div>\'+' +
+'    \'<div class="prog"><div class="pbar-l"><span>Puntaje diagnóstico</span><span>\'+p.puntaje+\' / 60</span></div>\'+' +
+'    \'<div class="pbar-bg"><div class="pbar-fg" style="width:\'+pct+\'%"></div></div></div>\'+' +
+'    \'<div class="sec"><div class="sh">Datos Personales</div>\'+' +
+'    f("DPI",p.dpi)+f("Edad",p.edad)+f("Género",p.genero)+f("Teléfono",p.telefono)+f("Zona",p.zona)+f("Email",p.email)+' +
+'    \'</div><div class="sec"><div class="sh">Perfil Profesional</div>\'+' +
+'    f("Educación",p.educacion)+f("Situación laboral",p.laboral)+' +
+'    \'</div><div class="sec"><div class="sh">Fortalezas</div><div class="txt">\'+esc(p.fortalezas||"—")+\'</div></div>\'+' +
+'    \'<div class="sec"><div class="sh">Objetivo laboral</div><div class="txt">\'+esc(p.objetivo||"—")+\'</div></div>\'+' +
+'    \'<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>\'+dimHtml+\'</div>\'+' +
+'    docBtn+"</div>";' +
+'}' +
+
+'function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}' +
+
+'init();' +
+'</script></body></html>';
 
 // ============================================================================
 // AGREGAR PARTICIPANTE MANUALMENTE
