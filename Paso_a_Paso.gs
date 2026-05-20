@@ -133,7 +133,7 @@ function onOpen() {
       .addItem('📊 Actualizar Power BI',              'exportarParaPowerBI')
       .addSeparator()
       // ── Automatización ────────────────────────────────────────────────
-      .addItem('⏰ Activar Auto-actualización',       'configurarAutoActualizacion')
+      .addItem('⏰ Configurar Auto-Sync',              'configurarSyncMatutina')
       .addSeparator()
       // ── Configuración & Setup ─────────────────────────────────────────
       .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
@@ -2063,100 +2063,159 @@ function triggerAutoSyncCompleta() {
   }
 }
 
-/** Muestra diálogo para configurar la sync matutina */
+/** Muestra diálogo para configurar la sync automática */
 function configurarSyncMatutina() {
-  const props      = PropertiesService.getScriptProperties();
-  const horaActual = props.getProperty(PROP_SYNC_HORA) || '7';
-  const ultimaRun  = props.getProperty('sync_last_run');
-  const ultimaTxt  = ultimaRun
+  const props       = PropertiesService.getScriptProperties();
+  const horaActual  = props.getProperty(PROP_SYNC_HORA) || '7';
+  const freqActual  = props.getProperty('sync_frecuencia') || 'diaria';
+  const ultimaRun   = props.getProperty('sync_last_run');
+  const ultimaTxt   = ultimaRun
     ? Utilities.formatDate(new Date(ultimaRun), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
     : 'Nunca';
-  const activo = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === TRIGGER_SYNC_FN);
+  const triggers    = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === TRIGGER_SYNC_FN);
+  const activo      = triggers.length > 0;
+
+  const frecDescMap = {
+    'cada1h':   '⚡ Cada 1 hora',
+    'cada2h':   '🔄 Cada 2 horas',
+    'cada6h':   '🕕 Cada 6 horas',
+    'cada12h':  '🌗 Cada 12 horas',
+    'diaria':   '📅 Una vez al día'
+  };
+  const frecDesc = frecDescMap[freqActual] || '—';
 
   const html = HtmlService.createHtmlOutput(`
-    <!DOCTYPE html><html><head>
+    <!DOCTYPE html><html><head><meta charset="UTF-8">
     <style>
-      body{font-family:'Segoe UI',Arial;font-size:13px;margin:0;background:#f5f5f5}
-      .hdr{background:#1a237e;color:#fff;padding:16px 20px}
-      .hdr h2{margin:0;font-size:15px}
-      .hdr p{margin:4px 0 0;font-size:10px;opacity:.85}
-      .body{padding:20px}
-      .status{background:${activo?'#e8f5e9':'#fff3e0'};
-              border-left:4px solid ${activo?'#43a047':'#fb8c00'};
-              padding:10px 14px;border-radius:4px;margin-bottom:18px;font-size:12px}
-      .steps{background:#e8eaf6;border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:11px;line-height:1.8;color:#333}
-      .steps strong{color:#1a237e}
-      .hora-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
-      .hora-opt{background:#fff;border:2px solid #e0e0e0;border-radius:8px;padding:10px 6px;
-                text-align:center;cursor:pointer;transition:all .15s}
-      .hora-opt:hover{border-color:#1a237e;background:#f0f2ff}
-      .hora-opt.sel{border-color:#1a237e;background:#e8eaf6}
-      .hora-opt strong{display:block;font-size:16px;color:#1a237e}
-      .hora-opt span{font-size:9px;color:#777}
-      .btn{width:100%;padding:12px;background:#1a237e;color:#fff;border:none;
-           border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:4px}
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;background:#f5f7ff;color:#333}
+      .hdr{background:linear-gradient(135deg,#1a237e,#283593);color:#fff;padding:16px 20px}
+      .hdr h2{font-size:15px;font-weight:700}
+      .hdr p{font-size:10px;opacity:.8;margin-top:3px}
+      .body{padding:18px}
+      .card{background:#fff;border-radius:8px;padding:12px 14px;margin-bottom:14px;border:1px solid #e8eaf6}
+      .status{border-left:4px solid ${activo?'#43a047':'#fb8c00'};background:${activo?'#e8f5e9':'#fff8e1'};border-radius:0 6px 6px 0}
+      .status .big{font-size:13px;font-weight:700;color:${activo?'#2e7d32':'#e65100'};}
+      .status .sub{font-size:10px;color:#777;margin-top:3px}
+      .sec-title{font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+      .freq-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+      .fq{background:#fff;border:2px solid #e0e0e0;border-radius:7px;padding:10px 8px;cursor:pointer;text-align:center}
+      .fq:hover{border-color:#1a237e;background:#f0f2ff}
+      .fq.sel{border-color:#1a237e;background:#e8eaf6}
+      .fq strong{display:block;font-size:13px;color:#1a237e;margin-bottom:2px}
+      .fq span{font-size:9px;color:#777}
+      .hora-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+      .hq{background:#fff;border:2px solid #e0e0e0;border-radius:6px;padding:7px 4px;cursor:pointer;text-align:center;font-size:11px;font-weight:700;color:#555}
+      .hq:hover,.hq.sel{border-color:#1a237e;background:#e8eaf6;color:#1a237e}
+      .steps{font-size:10px;line-height:1.7;color:#555;background:#e8eaf6;padding:10px 12px;border-radius:6px;margin-bottom:14px}
+      .btn{width:100%;padding:11px;background:#1a237e;color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px}
       .btn:hover{background:#283593}
-      .btn.danger{background:#c62828;margin-top:8px}
+      .btn.now{background:#1e88e5;margin-top:8px}
+      .btn.danger{background:#e53935;margin-top:6px}
+      #horaRow{display:none;margin-top:10px}
     </style></head><body>
     <div class="hdr">
-      <h2>⚡ Auto-Sync Completa</h2>
-      <p>Sincroniza Kobo + Derivados + PBI + Dashboard automáticamente</p>
+      <h2>⏰ Auto-Sync de Datos</h2>
+      <p>Importa datos nuevos automáticamente. Solo trae registros que aún no están.</p>
     </div>
     <div class="body">
-      <div class="status">
-        Estado: <strong>${activo ? '✅ ACTIVO — a las '+horaActual+':00' : '🔴 INACTIVO'}</strong><br>
-        Última ejecución: <strong>${ultimaTxt}</strong>
+      <div class="card status">
+        <div class="big">${activo ? '✅ ACTIVO — '+frecDesc : '🔴 INACTIVO'}</div>
+        <div class="sub">Última sync: <strong>${ultimaTxt}</strong>${activo && freqActual==='diaria' ? ' · Hora programada: '+horaActual+':00' : ''}</div>
       </div>
+
       <div class="steps">
-        <strong>Cada mañana ejecuta automáticamente:</strong><br>
-        1️⃣ Descarga nuevas respuestas de Kobo<br>
-        2️⃣ Importa nuevos registros de DP_Empleabilidad → Derivados<br>
-        3️⃣ Actualiza hojas PBI_Participantes e PBI_Indicadores<br>
-        4️⃣ Reconstruye el Dashboard con datos frescos
+        Cada vez que se ejecuta:<br>
+        1️⃣ Descarga solo los <strong>registros nuevos</strong> de Kobo<br>
+        2️⃣ Importa nuevos de DP_Empleabilidad → Derivados<br>
+        3️⃣ Actualiza PBI y Dashboard
       </div>
-      <p style="margin:0 0 10px;font-weight:bold;color:#333">Hora de ejecución:</p>
-      <div class="hora-grid">
-        <div class="hora-opt ${horaActual==='5'?'sel':''}" onclick="sel(this,'5')"><strong>5:00</strong><span>Madrugada</span></div>
-        <div class="hora-opt ${horaActual==='6'?'sel':''}" onclick="sel(this,'6')"><strong>6:00</strong><span>Temprano</span></div>
-        <div class="hora-opt ${horaActual==='7'?'sel':''}" onclick="sel(this,'7')"><strong>7:00</strong><span>✅ Recomen.</span></div>
-        <div class="hora-opt ${horaActual==='8'?'sel':''}" onclick="sel(this,'8')"><strong>8:00</strong><span>Al llegar</span></div>
+
+      <div class="sec-title">Frecuencia de revisión</div>
+      <div class="freq-grid">
+        <div class="fq ${freqActual==='cada1h'?'sel':''}" onclick="selFreq(this,'cada1h')"><strong>Cada hora</strong><span>Más frecuente</span></div>
+        <div class="fq ${freqActual==='cada2h'?'sel':''}" onclick="selFreq(this,'cada2h')"><strong>Cada 2h</strong><span>Balanceado</span></div>
+        <div class="fq ${freqActual==='cada6h'?'sel':''}" onclick="selFreq(this,'cada6h')"><strong>Cada 6h</strong><span>✅ Recomen.</span></div>
+        <div class="fq ${freqActual==='diaria'?'sel':''}" onclick="selFreq(this,'diaria')"><strong>1× al día</strong><span>Ahorra cuota</span></div>
       </div>
-      <button class="btn" onclick="guardar()">⚡ Activar Auto-Sync Diaria</button>
-      <button class="btn danger" onclick="desactivar()">🔴 Desactivar</button>
+
+      <div id="horaRow">
+        <div class="sec-title" style="margin-top:10px">Hora de ejecución (solo para opción diaria)</div>
+        <div class="hora-grid">
+          <div class="hq ${horaActual==='6'?'sel':''}" onclick="selHora(this,'6')">6:00</div>
+          <div class="hq ${horaActual==='7'?'sel':''}" onclick="selHora(this,'7')">7:00 ✓</div>
+          <div class="hq ${horaActual==='8'?'sel':''}" onclick="selHora(this,'8')">8:00</div>
+          <div class="hq ${horaActual==='12'?'sel':''}" onclick="selHora(this,'12')">12:00</div>
+        </div>
+      </div>
+
+      <button class="btn" onclick="activar()">✅ Activar Auto-Sync</button>
+      <button class="btn now" onclick="ahora()">🔄 Sincronizar Ahora (manual)</button>
+      ${activo ? '<button class="btn danger" onclick="desactivar()">🔴 Desactivar</button>' : ''}
     </div>
     <script>
-      var hora = '${horaActual}';
-      function sel(el,h){ document.querySelectorAll('.hora-opt').forEach(o=>o.classList.remove('sel')); el.classList.add('sel'); hora=h; }
-      function guardar(){
-        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).activarSyncDiaria(hora);
+      var freq='${freqActual}', hora='${horaActual}';
+      function selFreq(el,f){
+        document.querySelectorAll('.fq').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); freq=f;
+        document.getElementById('horaRow').style.display=f==='diaria'?'block':'none';
+      }
+      function selHora(el,h){
+        document.querySelectorAll('.hq').forEach(x=>x.classList.remove('sel')); el.classList.add('sel'); hora=h;
+      }
+      function activar(){
+        document.querySelector('.btn').disabled=true; document.querySelector('.btn').textContent='Activando…';
+        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).activarAutoSync(freq,hora);
+      }
+      function ahora(){
+        document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
+        document.querySelector('.now').textContent='Sincronizando…';
+        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).sincronizarTodo();
       }
       function desactivar(){
-        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).desactivarSyncDiaria();
+        if(confirm('¿Desactivar la sync automática?'))
+          google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).desactivarSyncDiaria();
       }
+      // Mostrar selector de hora si ya es diaria
+      if(freq==='diaria') document.getElementById('horaRow').style.display='block';
     </script></body></html>
-  `).setWidth(460).setHeight(490);
-  SpreadsheetApp.getUi().showModalDialog(html, '⚡ Auto-Sync Completa');
+  `).setWidth(420).setHeight(560);
+  SpreadsheetApp.getUi().showModalDialog(html, '⏰ Auto-Sync de Datos');
 }
 
-function activarSyncDiaria(hora) {
+function activarAutoSync(frecuencia, hora) {
   try {
+    // Eliminar triggers anteriores
     ScriptApp.getProjectTriggers()
       .filter(t => t.getHandlerFunction() === TRIGGER_SYNC_FN)
       .forEach(t => ScriptApp.deleteTrigger(t));
 
-    ScriptApp.newTrigger(TRIGGER_SYNC_FN).timeBased()
-      .everyDays(1).atHour(parseInt(hora)||7).create();
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('sync_frecuencia', frecuencia);
+    props.setProperty(PROP_SYNC_HORA, String(hora));
 
-    PropertiesService.getScriptProperties().setProperty(PROP_SYNC_HORA, String(hora));
+    const h = parseInt(hora) || 7;
+    const builder = ScriptApp.newTrigger(TRIGGER_SYNC_FN).timeBased();
 
-    // Ejecutar ahora mismo
-    triggerAutoSyncCompleta();
+    if (frecuencia === 'cada1h') {
+      builder.everyHours(1).create();
+    } else if (frecuencia === 'cada2h') {
+      builder.everyHours(2).create();
+    } else if (frecuencia === 'cada6h') {
+      builder.everyHours(6).create();
+    } else {
+      builder.everyDays(1).atHour(h).create();
+    }
 
-    return '✅ Auto-Sync activada a las '+hora+':00 cada día.\n\nYa se ejecutó una primera sincronización completa ahora mismo.';
+    const descMap = {cada1h:'cada hora',cada2h:'cada 2 horas',cada6h:'cada 6 horas',diaria:'diariamente a las '+h+':00'};
+    return '✅ Auto-Sync activada — se ejecutará ' + (descMap[frecuencia]||'diariamente') + '.\n\nSolo importa registros nuevos que aún no estén en la hoja.';
   } catch(e) {
-    logError('activarSyncDiaria', e);
+    logError('activarAutoSync', e);
     return '❌ Error: ' + e.message;
   }
+}
+
+function activarSyncDiaria(hora) {
+  return activarAutoSync('diaria', hora);
 }
 
 function desactivarSyncDiaria() {
