@@ -758,6 +758,57 @@ function manejarEdicion(e) {
 
   try {
     const sheet = e.source.getActiveSheet();
+
+    // ── Acciones en hoja Derivados ────────────────────────────────────────
+    if (sheet.getName() === 'Derivados') {
+      const fila = e.range.getRow();
+      const col  = e.range.getColumn();
+      const valN = e.value || '';
+      if (fila < 2 || col !== 15 || !valN) return;
+      e.range.clearContent();
+
+      const rd      = sheet.getRange(fila, 1, 1, 14).getValues()[0];
+      const nombre  = String(rd[2] || '');
+      const telRaw  = String(rd[3] || '').replace(/\D/g,'');
+      const tel     = telRaw.length === 8 ? '502'+telRaw : telRaw;
+      const KOBO_FORM = 'https://ee.kobotoolbox.org/x/M9M734If';
+
+      if (valN.includes('Enviar') || valN.includes('recordatorio')) {
+        if (!tel) {
+          SpreadsheetApp.getUi().alert('⚠️ Sin teléfono\n\n' + nombre + ' no tiene número registrado.');
+          return;
+        }
+        const esRecordatorio = valN.includes('recordatorio');
+        const msg = encodeURIComponent(
+          'Hola ' + nombre + ', somos el equipo de *Paso a Paso de Creamos Guatemala* 👋\n\n' +
+          (esRecordatorio ? 'Te recordamos que aún tienes pendiente llenar tu formulario de inscripción:\n\n' : 'Te invitamos a llenar tu formulario de inscripción para unirte al programa:\n\n') +
+          '👉 ' + KOBO_FORM + '\n\n' +
+          'Es rápido y fácil. ¡Contamos contigo!'
+        );
+        const html = HtmlService.createHtmlOutput(
+          '<div style="font-family:\'Segoe UI\',sans-serif;padding:20px;text-align:center;">' +
+          '<div style="font-size:36px;margin-bottom:8px;">📲</div>' +
+          '<p style="font-size:13px;color:#555;margin-bottom:4px;">' + (esRecordatorio ? 'Recordatorio para' : 'Enviar formulario Kobo a') + '</p>' +
+          '<p style="font-size:16px;font-weight:700;color:#1a237e;margin-bottom:16px;">' + nombre + '</p>' +
+          '<p style="font-size:11px;color:#777;margin-bottom:16px;">Se abrirá WhatsApp con el link del formulario:<br><strong>' + KOBO_FORM + '</strong></p>' +
+          '<a href="https://wa.me/' + tel + '?text=' + msg + '" target="_blank" ' +
+          'style="display:inline-block;padding:10px 24px;background:#25d366;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">💬 Abrir WhatsApp</a>' +
+          '<p style="font-size:10px;color:#aaa;margin-top:14px;">Cierra esta ventana después de enviar.</p>' +
+          '</div>'
+        ).setWidth(320).setHeight(280).setTitle('Enviar formulario');
+        SpreadsheetApp.getUi().showModelessDialog(html, 'Enviar formulario Kobo');
+        // Marcar como enviado
+        sheet.getRange(fila, 13).setValue('Formulario enviado');
+
+      } else if (valN.includes('completó')) {
+        sheet.getRange(fila, 13).setValue('Completó formulario');
+        sheet.getRange(fila, 14).setValue(new Date());
+        sheet.getRange(fila, 13, 1, 2).setBackground('#d9ead3');
+        SpreadsheetApp.getUi().alert('✅ Marcado como completado.\n\nCuando ' + nombre + ' llene el formulario Kobo, sus datos llegarán automáticamente a la hoja Maestro.');
+      }
+      return;
+    }
+
     if (sheet.getName() !== CONFIG.HOJA) return;
 
     const fila = e.range.getRow();
@@ -4023,14 +4074,25 @@ function reinstalarCompleto() {
     .requireValueInList(['Femenino','Masculino','No binario','Prefiero no decir'], true).build());
 
   // ── Derivados ────────────────────────────────────────────────────────────
-  if (!ss.getSheetByName('Derivados')) {
-    const hd = ss.insertSheet('Derivados');
-    hd.appendRow(['Fecha_Import','ID','Nombre','Teléfono','Género','Edad','Educación','DPI','Formación','Cohorte','Notas','Activo','Estado_Derivado','Fecha_Aprobación']);
-    hd.getRange(1,1,1,14).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
-    hd.setFrozenRows(1);
+  {
+    let hd = ss.getSheetByName('Derivados');
+    if (!hd) {
+      hd = ss.insertSheet('Derivados');
+      hd.appendRow(['Fecha_Import','ID','Nombre','Teléfono','Género','Edad','Educación','DPI','Formación','Cohorte','Notas','Activo','Estado_Derivado','Fecha_Aprobación','⚡ Acción']);
+      hd.getRange(1,1,1,15).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+      hd.setFrozenRows(1);
+      creadas.push('Derivados');
+    } else {
+      // Asegurar columna Acción si no existe
+      if (hd.getRange(1,15).getValue() !== '⚡ Acción') {
+        hd.getRange(1,15).setValue('⚡ Acción').setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+      }
+    }
     hd.getRange(2,13,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Pendiente','Aprobado','Rechazado'], true).build());
-    creadas.push('Derivados');
+      .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
+    hd.getRange(2,15,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['📲 Enviar formulario Kobo','🔁 Reenviar recordatorio','✅ Ya completó el formulario'], true).build());
+    hd.setColumnWidth(3,180).setColumnWidth(15,200);
   }
 
   // ── Sesiones ─────────────────────────────────────────────────────────────
