@@ -2244,41 +2244,49 @@ function verFicha() {
 
 // Lee SOLO el Maestro (rápido, con caché)
 function obtenerParticipantes() {
-  const cache = CacheService.getScriptCache();
-  const cached = cache.get('p_maestro');
-  if (cached) return JSON.parse(cached);
+  try {
+    const cache = CacheService.getScriptCache();
+    try {
+      const cached = cache.get('p_maestro');
+      if (cached) return JSON.parse(cached);
+    } catch(e) { /* caché corrupto, ignorar y releer */ }
 
-  const ss = SpreadsheetApp.getActive();
-  const maestro = ss.getSheetByName(CONFIG.HOJA);
-  if (!maestro || maestro.getLastRow() < 2) return [];
+    const ss = SpreadsheetApp.getActive();
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro) throw new Error('No se encontró la hoja "' + CONFIG.HOJA + '"');
+    if (maestro.getLastRow() < 2) return [];
 
-  const M = CONFIG.COL;
-  const resultado = maestro.getRange(2, 1, maestro.getLastRow()-1, 26).getValues()
-    .filter(r => r[M.ID-1])
-    .map(r => ({
-      id:        String(r[M.ID-1]        || ''),
-      nombre:    String(r[M.NOMBRE-1]    || ''),
-      perfil:    String(r[M.PERFIL-1]    || ''),
-      prioridad: String(r[M.PRIORIDAD-1] || ''),
-      puntaje:   Number(r[M.PUNTAJE-1])  || 0,
-      estado:    String(r[M.ESTADO-1]    || ''),
-      dpi:       String(r[M.DPI-1]       || ''),
-      edad:      String(r[M.EDAD-1]      || ''),
-      genero:    String(r[M.GENERO-1]    || ''),
-      telefono:  String(r[M.TELEFONO-1]  || ''),
-      zona:      String(r[M.ZONA-1]      || ''),
-      email:     String(r[M.EMAIL-1]     || ''),
-      educacion: String(r[M.EDUCACION-1] || ''),
-      laboral:   String(r[M.LABORAL-1]   || ''),
-      fortalezas:String(r[M.FORTALEZAS-1]|| ''),
-      objetivo:  String(r[M.OBJETIVO-1]  || ''),
-      docUrl:    String(r[M.DOC_URL-1]   || ''),
-      fuente:    'Maestro',
-      dims: [M.DIM1,M.DIM2,M.DIM3,M.DIM4,M.DIM5,M.DIM6].map(c => Number(r[c-1])||0)
-    }));
+    const M = CONFIG.COL;
+    const resultado = maestro.getRange(2, 1, maestro.getLastRow()-1, 26).getValues()
+      .filter(r => r[M.ID-1])
+      .map(r => ({
+        id:        String(r[M.ID-1]        || ''),
+        nombre:    String(r[M.NOMBRE-1]    || ''),
+        perfil:    String(r[M.PERFIL-1]    || ''),
+        prioridad: String(r[M.PRIORIDAD-1] || ''),
+        puntaje:   Number(r[M.PUNTAJE-1])  || 0,
+        estado:    String(r[M.ESTADO-1]    || ''),
+        dpi:       String(r[M.DPI-1]       || ''),
+        edad:      String(r[M.EDAD-1]      || ''),
+        genero:    String(r[M.GENERO-1]    || ''),
+        telefono:  String(r[M.TELEFONO-1]  || ''),
+        zona:      String(r[M.ZONA-1]      || ''),
+        email:     String(r[M.EMAIL-1]     || ''),
+        educacion: String(r[M.EDUCACION-1] || ''),
+        laboral:   String(r[M.LABORAL-1]   || ''),
+        fortalezas:String(r[M.FORTALEZAS-1]|| ''),
+        objetivo:  String(r[M.OBJETIVO-1]  || ''),
+        docUrl:    String(r[M.DOC_URL-1]   || ''),
+        fuente:    'Maestro',
+        dims: [M.DIM1,M.DIM2,M.DIM3,M.DIM4,M.DIM5,M.DIM6].map(c => Number(r[c-1])||0)
+      }));
 
-  cache.put('p_maestro', JSON.stringify(resultado), 300);
-  return resultado;
+    try { cache.put('p_maestro', JSON.stringify(resultado), 300); } catch(e) { /* datos > 100KB, sin caché */ }
+    return resultado;
+  } catch(e) {
+    logError('obtenerParticipantes', e);
+    throw e;
+  }
 }
 
 // Lee DP_Empleabilidad si es necesario (llamada separada)
@@ -2506,20 +2514,29 @@ var COLS={
 };
 
 function init(){
+  document.getElementById('contador').textContent = 'Cargando…';
   google.script.run
     .withSuccessHandler(function(data){
       todos = data || [];
+      document.getElementById('contador').textContent = todos.length + ' participantes';
       filtrar();
     })
     .withFailureHandler(function(err){
+      var msg = String(err.message || err);
       document.getElementById('lista').innerHTML =
-        '<div class="vacio">❌ Error cargando datos<br><small>'+String(err.message||err)+'</small></div>';
-      document.getElementById('contador').textContent = 'Error';
+        '<div class="vacio" style="color:#c62828">❌ Error al cargar datos<br>'+
+        '<small style="display:block;margin-top:6px;background:#ffebee;padding:8px;border-radius:4px;text-align:left;word-break:break-all">'+msg+'</small>'+
+        '<button onclick="recargar()" style="margin-top:10px;padding:6px 14px;background:#1a237e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">🔄 Reintentar</button></div>';
+      document.getElementById('contador').textContent = '⚠️ Error';
     })
     .obtenerParticipantes();
 }
 
-function recargar(){ document.getElementById('lista').innerHTML='<div class="loading"><div class="loading-spin">⏳</div><br>Recargando…</div>'; init(); }
+function recargar(){
+  document.getElementById('lista').innerHTML='<div class="loading"><div class="loading-spin">⏳</div><br>Recargando…</div>';
+  document.getElementById('contador').textContent = 'Cargando…';
+  init();
+}
 
 function filtrar(){
   var q=document.getElementById('buscar').value.toLowerCase();
