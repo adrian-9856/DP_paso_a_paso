@@ -122,61 +122,23 @@ function validarTransicionEstado(ant, nuevo) {
 // ============================================================================
 
 function onOpen() {
-  try {
-    const ui = SpreadsheetApp.getUi();
-    ui.createMenu('📊 PASO A PASO')
-      // ── Sistema ──
-      .addItem('🔍 Diagnóstico del Sistema',  'diagnostico')
-      .addItem('📥 Instalar Sistema',          'instalar')
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('🚀 Paso a Paso')
+    .addItem('📋 Ver Participantes',           'verFicha')
+    .addSeparator()
+    .addItem('🔄 Sincronizar Todo',            'sincronizarTodo')
+    .addSeparator()
+    .addItem('📊 Abrir Dashboard',             'abrirDashboard')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('🛠️ Sistema')
+      .addItem('📥 Reinstalar / Reparar Todo', 'reinstalarCompleto')
       .addItem('⚙️ Configuración',             'abrirConfiguracion')
       .addSeparator()
-      // ── Participantes ──
-      .addSubMenu(ui.createMenu('👤 Participantes')
-        .addItem('📋 Ver Ficha',               'verFicha')
-        .addItem('➕ Agregar Participante',     'agregarParticipanteManual')
-        .addItem('✏️ Editar Participante',      'editarParticipante')
-        .addItem('➡️ Derivar Participante',    'abrirFormDerivacion')
-        .addItem('📊 Ver Derivaciones',         'verDerivaciones')
-        .addItem('🗒️ Ver Sesiones',             'verSesionesParticipante')
-      )
-      // ── Datos & Sincronización ──
-      .addSubMenu(ui.createMenu('🔄 Datos & Sincronización')
-        .addItem('🔄 Sincronizar Kobo',              'sincronizarConValidaciones')
-        .addSeparator()
-        .addItem('📋 Gestionar Derivados',            'gestionarDerivados')
-        .addItem('📥 Importar DP → Derivados',        'importarDPADerivados')
-        .addItem('📲 Enviar formulario (WhatsApp)',    'enviarFormularioADerivado')
-        .addSeparator()
-        .addItem('⚡ Sync Matutina Automática',       'configurarSyncMatutina')
-        .addSeparator()
-        .addItem('📁 Crear Expedientes Drive',        'crearExpedientesPendientes')
-        .addItem('🎨 Colorear Tabla',                 'colorearTabla')
-        .addItem('🔁 Restaurar desde Drive',          'restaurarDesdeDrive')
-      )
-      // ── Reportes & Análisis ──
-      .addSubMenu(ui.createMenu('📊 Reportes & Análisis')
-        .addItem('📊 Dashboard',               'abrirDashboard')
-        .addItem('📈 Analytics',               'abrirAnalytics')
-        .addItem('📋 Calidad de Datos',        'analizarCalidadDatos')
-        .addItem('📝 Reporte Mensual',         'generarReporteMensual')
-        .addSeparator()
-        .addItem('⚡ Exportar para Power BI',        'exportarParaPowerBI')
-        .addItem('⏰ Configurar Auto-actualización',  'configurarAutoActualizacion')
-        .addItem('🔴 Desactivar Auto-actualización',  'desactivarAutoActualizacion')
-      )
-      // ── Herramientas Kobo ──
-      .addSubMenu(ui.createMenu('🔬 Herramientas Kobo')
-        .addItem('🧪 Probar Conexión Kobo',    'probarKobo')
-        .addItem('🔬 Inspeccionar Campos',     'diagnosticoCamposKobo')
-        .addItem('⚖️ Comparar Mapeos',          'compararMapeosKobo')
-        .addItem('🔍 Ver Primer Registro',     'inspeccionarPrimerRegistroKobo')
-        .addItem('📋 Exportar Muestra',        'exportarMuestraKoboASheet')
-      )
+      .addItem('🔬 Diagnosticar Kobo',         'diagnosticoCamposKobo')
+      .addItem('🧪 Probar Conexión Kobo',      'probarKobo')
       .addSeparator()
-      // ── Zona peligrosa ──
-      .addItem('🗑️ Desinstalar & Limpiar',     'desinstalarYLimpiar')
-      .addToUi();
-  } catch(e) {}
+      .addItem('🗑️ Desinstalar & Limpiar',     'desinstalarYLimpiar'))
+    .addToUi();
 }
 
 // ============================================================================
@@ -223,74 +185,7 @@ function diagnostico() {
 // ============================================================================
 
 function instalar() {
-  try {
-    const ss = SpreadsheetApp.getActive();
-    const HEADERS = [
-      'ID_Creamos','Fecha_Registro','Nombre_Completo','DPI','Edad','Género',
-      'Teléfono','Zona','Email','Nivel_Educativo','Situación_Laboral','Fortalezas',
-      'Objetivo_Laboral','Perfil_Asignado','Prioridad','Puntaje_Total',
-      'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional',
-      'Dim_Barreras','Dim_Apoyo','Estado','Carpeta_Drive_ID','Doc_Perfil_ID','Doc_Perfil_URL'
-    ];
-
-    // Maestro
-    let maestro = ss.getSheetByName(CONFIG.HOJA);
-    if (!maestro) maestro = ss.insertSheet(CONFIG.HOJA);
-    if (maestro.getLastRow() === 0) {
-      maestro.appendRow(HEADERS);
-      maestro.getRange(1,1,1,26)
-        .setBackground('#1a237e').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
-      maestro.setFrozenRows(1);
-      maestro.setColumnWidth(1,120).setColumnWidth(3,220).setColumnWidth(13,200)
-             .setColumnWidth(24,160).setColumnWidth(25,160).setColumnWidth(26,280);
-    }
-
-    // Derivaciones
-    if (!ss.getSheetByName('Derivaciones')) {
-      const d = ss.insertSheet('Derivaciones');
-      d.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
-      d.getRange(1,1,1,10).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
-      d.setFrozenRows(1);
-      d.setColumnWidth(3,180); d.setColumnWidth(5,200); d.setColumnWidth(6,250);
-    }
-
-    // Log
-    if (!ss.getSheetByName('Log')) {
-      const l = ss.insertSheet('Log');
-      l.appendRow(['Fecha_Hora','Hoja','Fila','Columna','Valor_Anterior','Valor_Nuevo','Usuario']);
-      l.getRange(1,1,1,7).setBackground('#4a148c').setFontColor('#fff').setFontWeight('bold');
-      l.setFrozenRows(1);
-    }
-
-    // Dashboard
-    if (!ss.getSheetByName('Dashboard')) {
-      const db = ss.insertSheet('Dashboard');
-      db.appendRow(['DASHBOARD — PASO A PASO']);
-      db.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#1a237e');
-    }
-
-    // Analytics
-    if (!ss.getSheetByName('Analytics')) {
-      const an = ss.insertSheet('Analytics');
-      an.appendRow(['ANALYTICS — PASO A PASO']);
-      an.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
-      an.setFrozenRows(1);
-    }
-
-    configurarTriggers();
-
-    SpreadsheetApp.getUi().alert(
-      '✅ Sistema v8.7 instalado\n\n' +
-      '📋 Hojas creadas: Maestro, Derivaciones, Log, Dashboard, Analytics\n' +
-      '⏱️ Triggers configurados\n\n' +
-      '⚙️ SIGUIENTE PASO:\n' +
-      'Abre ⚙️ Configuración e ingresa tu email\n' +
-      'y el ID de tu carpeta Drive.\n\n' +
-      'Luego: 🏢 Importar DP_Empleabilidad'
-    );
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('❌ Error al instalar: ' + e);
-  }
+  reinstalarCompleto();
 }
 
 function configurarTriggers() {
@@ -850,6 +745,37 @@ function manejarEdicion(e) {
     const valN = e.value    || '';
     const valA = e.oldValue || '';
     if (fila < 2 || !valN || valN === valA) return;
+
+    // ── Acción Rápida (columna 27) ──────────────────────────────────────────
+    if (col === 27) {
+      e.range.clearContent();
+      const rd = sheet.getRange(fila, 1, 1, 26).getValues()[0];
+      const nombreP = String(rd[2] || '');
+      const telRaw  = String(rd[6] || '').replace(/\D/g,'');
+      const tel     = telRaw.length === 8 ? '502'+telRaw : telRaw;
+      const docUrl  = String(rd[25]|| '');
+      const idP     = String(rd[0] || '');
+      if (valN.includes('WhatsApp')) {
+        if (!tel) { SpreadsheetApp.getUi().alert('⚠️ Sin teléfono\n\n'+nombreP+' no tiene teléfono registrado.'); return; }
+        const msg = encodeURIComponent('Hola '+nombreP+', somos el equipo de Paso a Paso de Creamos Guatemala. ¿Cómo estás?');
+        const html = HtmlService.createHtmlOutput(
+          '<div style="font-family:\'Segoe UI\',sans-serif;padding:22px;text-align:center">'+
+          '<p style="font-size:14px;color:#333;margin-bottom:6px">Enviar mensaje a</p>'+
+          '<p style="font-size:16px;font-weight:700;color:#1a237e;margin-bottom:18px">'+nombreP+'</p>'+
+          '<a href="https://wa.me/'+tel+'?text='+msg+'" target="_blank"'+
+          ' style="display:block;background:#25d366;color:#fff;padding:13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">💬 Abrir WhatsApp</a>'+
+          '</div>'
+        ).setWidth(300).setHeight(170);
+        SpreadsheetApp.getUi().showModelessDialog(html, '💬 WhatsApp — '+nombreP.split(' ')[0]);
+      } else if (valN.includes('Ver Perfil')) {
+        PropertiesService.getScriptProperties().setProperty('FICHA_OPEN_ID', idP);
+        verFicha();
+      } else if (valN.includes('Sesión')) {
+        abrirSesionDesdeHoja(idP, nombreP);
+      }
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // Validar transición de estado
     if (col === CONFIG.COL.ESTADO) {
@@ -3386,7 +3312,8 @@ function desinstalarYLimpiar() {
   try { tmp = ss.insertSheet('_temp_'); } catch(e) {}
 
   // Eliminar todas las hojas del sistema
-  ['Maestro','Derivaciones','Log','Dashboard','Analytics'].forEach(n => {
+  ['Maestro','Derivados','Derivaciones','Sesiones','Log','Dashboard','Analytics',
+   'Fuentes_Externas','PBI_Participantes','PBI_Indicadores'].forEach(n => {
     const h = ss.getSheetByName(n);
     if (h) try { ss.deleteSheet(h); } catch(e) {}
   });
@@ -3774,6 +3701,259 @@ function exportarMuestraKoboASheet() {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
     logError('exportarMuestraKoboASheet', e);
   }
+}
+
+// ============================================================================
+// ACCIÓN RÁPIDA DESDE LA HOJA — registrar sesión sin abrir modal completo
+// ============================================================================
+
+function abrirSesionDesdeHoja(pid, pnom) {
+  const html = HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8">'+
+    '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:"Segoe UI",sans-serif;font-size:12px;padding:18px;background:#f8f9ff}'+
+    'label{display:block;font-weight:700;color:#333;font-size:11px;margin-bottom:3px;margin-top:10px}'+
+    'input,select,textarea{width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;font-size:11px}'+
+    'textarea{height:60px;resize:none}'+
+    'button{width:100%;padding:10px;background:#7e57c2;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer;margin-top:14px}'+
+    '.info{background:#e8eaf6;padding:7px 10px;border-radius:5px;font-size:11px;color:#555;margin-bottom:8px}'+
+    '</style></head><body>'+
+    '<div class="info"><strong>Participante:</strong> '+pnom+'</div>'+
+    '<label>Fecha</label><input id="sf" type="date" value="'+new Date().toISOString().slice(0,10)+'">'+
+    '<label>Tipo de Sesión</label><select id="st">'+
+    '<option>Orientación Laboral</option><option>Mentoría Individual</option><option>Seguimiento</option>'+
+    '<option>Taller/Actividad</option><option>Derivación</option><option>Otro</option></select>'+
+    '<label>Notas (opcional)</label><textarea id="sn" placeholder="Resumen de la sesión..."></textarea>'+
+    '<button onclick="guardar()">✅ Guardar Sesión</button>'+
+    '<script>function guardar(){'+
+    'var f=document.getElementById("sf").value;'+
+    'var t=document.getElementById("st").value;'+
+    'var n=document.getElementById("sn").value;'+
+    'if(!f||!t){alert("Completa la fecha y tipo");return;}'+
+    'google.script.run.withSuccessHandler(function(){google.script.host.close();})'+
+    '.withFailureHandler(function(e){alert("Error: "+e.message);})'+
+    '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}<\/script>'+
+    '</body></html>'
+  ).setWidth(320).setHeight(310).setTitle('📋 Registrar Sesión — '+pnom.split(' ')[0]);
+  SpreadsheetApp.getUi().showModelessDialog(html, '📋 Registrar Sesión');
+}
+
+// ============================================================================
+// REINSTALAR COMPLETO — crea todas las hojas, validaciones y columna de acción
+// ============================================================================
+
+function reinstalarCompleto() {
+  const ui = SpreadsheetApp.getUi();
+  if (ui.alert('📥 Reinstalar / Reparar Todo',
+    'Esto crea todas las hojas faltantes y aplica formato y validaciones.\n\nLos datos existentes NO se borran.\n\n¿Continuar?',
+    ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActive();
+  const creadas = [];
+
+  // ── Maestro ──────────────────────────────────────────────────────────────
+  let maestro = ss.getSheetByName(CONFIG.HOJA);
+  if (!maestro) { maestro = ss.insertSheet(CONFIG.HOJA); creadas.push('Maestro'); }
+  if (maestro.getLastRow() === 0) {
+    const HEADERS = ['ID_Creamos','Fecha_Registro','Nombre_Completo','DPI','Edad','Género',
+      'Teléfono','Zona','Email','Nivel_Educativo','Situación_Laboral','Fortalezas',
+      'Objetivo_Laboral','Perfil_Asignado','Prioridad','Puntaje_Total',
+      'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional',
+      'Dim_Barreras','Dim_Apoyo','Estado','Carpeta_Drive_ID','Doc_Perfil_ID','Doc_Perfil_URL'];
+    maestro.appendRow(HEADERS);
+    maestro.getRange(1,1,1,26).setBackground('#1a237e').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+    maestro.setFrozenRows(1);
+    maestro.setColumnWidths(1,26,100);
+    maestro.setColumnWidth(3,220).setColumnWidth(13,200).setColumnWidth(26,280);
+  }
+  // Columna 27 — Acción Rápida
+  const hdrAcc = maestro.getRange(1, 27);
+  hdrAcc.setValue('⚡ Acción Rápida').setBackground('#283593').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+  maestro.setColumnWidth(27, 160);
+  const lastDataRow = Math.max(maestro.getLastRow(), 500);
+  const rngAcc = maestro.getRange(2, 27, lastDataRow - 1, 1);
+  rngAcc.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['💬 WhatsApp', '👤 Ver Perfil', '📋 Registrar Sesión'], true)
+    .setAllowInvalid(false).build());
+
+  // Validaciones en columnas Maestro
+  const rngEstado = maestro.getRange(2, CONFIG.COL.ESTADO, lastDataRow - 1, 1);
+  rngEstado.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Orientación','Mentoría','Formación','Derivación','Inactivo','Cierre','Completado'], true).build());
+  const rngPerfil = maestro.getRange(2, CONFIG.COL.PERFIL, lastDataRow - 1, 1);
+  rngPerfil.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Perfil A','Perfil B','Perfil C','Perfil D'], true).build());
+  const rngPrior = maestro.getRange(2, CONFIG.COL.PRIORIDAD, lastDataRow - 1, 1);
+  rngPrior.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['CRÍTICO','ALTO','MEDIO','BAJO'], true).build());
+  const rngGen = maestro.getRange(2, CONFIG.COL.GENERO, lastDataRow - 1, 1);
+  rngGen.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Femenino','Masculino','No binario','Prefiero no decir'], true).build());
+
+  // ── Derivados ────────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Derivados')) {
+    const hd = ss.insertSheet('Derivados');
+    hd.appendRow(['Fecha_Import','ID','Nombre','Teléfono','Género','Edad','Educación','DPI','Formación','Cohorte','Notas','Activo','Estado_Derivado','Fecha_Aprobación']);
+    hd.getRange(1,1,1,14).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+    hd.setFrozenRows(1);
+    hd.getRange(2,13,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Pendiente','Aprobado','Rechazado'], true).build());
+    creadas.push('Derivados');
+  }
+
+  // ── Sesiones ─────────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Sesiones')) {
+    const hs = ss.insertSheet('Sesiones');
+    hs.appendRow(['Fecha','ID_Participante','Nombre','Tipo_Sesion','Notas','Orientador','Timestamp']);
+    hs.getRange(1,1,1,7).setBackground('#4a148c').setFontColor('#fff').setFontWeight('bold');
+    hs.setFrozenRows(1);
+    hs.setColumnWidth(3,180).setColumnWidth(4,160).setColumnWidth(5,280);
+    creadas.push('Sesiones');
+  }
+
+  // ── Derivaciones ─────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Derivaciones')) {
+    const hder = ss.insertSheet('Derivaciones');
+    hder.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
+    hder.getRange(1,1,1,10).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
+    hder.setFrozenRows(1);
+    hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250);
+    creadas.push('Derivaciones');
+  }
+
+  // ── Log ──────────────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Log')) {
+    const hl = ss.insertSheet('Log');
+    hl.appendRow(['Fecha_Hora','Hoja','Fila','Columna','Valor_Anterior','Valor_Nuevo','Usuario']);
+    hl.getRange(1,1,1,7).setBackground('#37474f').setFontColor('#fff').setFontWeight('bold');
+    hl.setFrozenRows(1);
+    creadas.push('Log');
+  }
+
+  // ── Dashboard ────────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Dashboard')) {
+    const hdb = ss.insertSheet('Dashboard');
+    hdb.appendRow(['DASHBOARD — PASO A PASO']);
+    hdb.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#1a237e');
+    creadas.push('Dashboard');
+  }
+
+  // ── Analytics ────────────────────────────────────────────────────────────
+  if (!ss.getSheetByName('Analytics')) {
+    const han = ss.insertSheet('Analytics');
+    han.appendRow(['ANALYTICS — PASO A PASO']);
+    han.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#6a1b9a');
+    han.setFrozenRows(1);
+    creadas.push('Analytics');
+  }
+
+  // ── Fuentes_Externas ─────────────────────────────────────────────────────
+  instalarFuentesExternas(ss);
+
+  // ── Triggers ─────────────────────────────────────────────────────────────
+  configurarTriggers();
+
+  // ── Caché limpio ─────────────────────────────────────────────────────────
+  try { CacheService.getScriptCache().removeAll(['p_maestro']); } catch(e) {}
+
+  ui.alert('✅ Sistema reparado',
+    (creadas.length ? '📋 Hojas creadas: '+creadas.join(', ')+'\n' : '✅ Todas las hojas ya existían\n')+
+    '✅ Columna "⚡ Acción Rápida" lista en Maestro\n'+
+    '✅ Validaciones aplicadas (Estado, Perfil, Prioridad, Género)\n'+
+    '✅ Triggers configurados\n\n'+
+    '💡 Usa la columna ⚡ de cada fila para acciones rápidas.',
+    ui.ButtonSet.OK);
+}
+
+// ============================================================================
+// FUENTES EXTERNAS — hoja de configuración de hojas externas
+// ============================================================================
+
+function instalarFuentesExternas(ss) {
+  ss = ss || SpreadsheetApp.getActive();
+  if (ss.getSheetByName('Fuentes_Externas')) return;
+  const hf = ss.insertSheet('Fuentes_Externas');
+  hf.appendRow(['Nombre','Spreadsheet_ID','Nombre_Hoja','Activo','Última_Sync','Notas']);
+  hf.getRange(1,1,1,6).setBackground('#006064').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+  hf.setFrozenRows(1);
+  hf.setColumnWidth(1,160).setColumnWidth(2,320).setColumnWidth(3,140).setColumnWidth(4,80).setColumnWidth(5,140).setColumnWidth(6,220);
+  // Fila de ejemplo con DP_Empleabilidad
+  hf.appendRow(['DP_Empleabilidad', DP_EMPLEABILIDAD.SPREADSHEET_ID, DP_EMPLEABILIDAD.HOJA, 'SÍ', '', 'Fuente principal de derivados']);
+  hf.getRange(2,4,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['SÍ','NO'], true).build());
+  hf.getRange(2,1,1,6).setBackground('#e0f7fa');
+  // Instrucciones en fila 3
+  hf.appendRow(['← EJEMPLO — puedes editar','','','','','Agrega una fila por cada fuente externa que quieras importar']);
+  hf.getRange(3,1,1,6).setFontColor('#9e9e9e').setFontStyle('italic');
+}
+
+function leerFuentesExternas() {
+  const ss  = SpreadsheetApp.getActive();
+  const hf  = ss.getSheetByName('Fuentes_Externas');
+  if (!hf || hf.getLastRow() < 2) return [];
+  return hf.getRange(2, 1, hf.getLastRow()-1, 6).getValues()
+    .filter(r => String(r[0]).trim() && String(r[1]).trim() && String(r[3]).toUpperCase() === 'SÍ')
+    .map(r => ({ nombre: String(r[0]), ssId: String(r[1]), hoja: String(r[2]||''), rowIdx: 0 }));
+}
+
+// ============================================================================
+// SINCRONIZAR TODO — Kobo + todas las fuentes externas activas
+// ============================================================================
+
+function sincronizarTodo() {
+  const ui = SpreadsheetApp.getUi();
+  const log = [];
+  let errores = 0;
+
+  // 1. Kobo
+  try {
+    sincronizarConValidaciones(true);
+    log.push('✅ Kobo sincronizado');
+  } catch(e) {
+    log.push('⚠️ Kobo: ' + e.message);
+    errores++;
+  }
+
+  // 2. Derivados (DP_Empleabilidad y fuentes externas activas)
+  try {
+    importarDPADerivados(true);
+    log.push('✅ DP_Empleabilidad → Derivados');
+  } catch(e) {
+    log.push('⚠️ DP_Empleabilidad: ' + e.message);
+    errores++;
+  }
+
+  // 3. Otras fuentes externas (Fuentes_Externas sheet)
+  const fuentes = leerFuentesExternas();
+  const ss = SpreadsheetApp.getActive();
+  const hf = ss.getSheetByName('Fuentes_Externas');
+  fuentes.forEach(function(f, idx) {
+    // Saltar DP_Empleabilidad (ya importada arriba)
+    if (String(f.ssId).trim() === String(DP_EMPLEABILIDAD.SPREADSHEET_ID).trim()) return;
+    try {
+      const extSS = SpreadsheetApp.openById(f.ssId);
+      const extH  = f.hoja ? extSS.getSheetByName(f.hoja) : extSS.getSheets()[0];
+      if (!extH) throw new Error('Hoja "'+f.hoja+'" no encontrada');
+      const filas = extH.getDataRange().getValues();
+      log.push('✅ '+f.nombre+': '+( filas.length - 1 )+' registros leídos (integración pendiente de mapeo)');
+      // Actualizar timestamp en Fuentes_Externas
+      if (hf) hf.getRange(idx+2, 5).setValue(new Date());
+    } catch(e) {
+      log.push('⚠️ '+f.nombre+': ' + e.message);
+      errores++;
+    }
+  });
+
+  // 4. Limpiar caché
+  try { CacheService.getScriptCache().removeAll(['p_maestro']); } catch(e) {}
+
+  // 5. Actualizar PBI si tiene triggers
+  try { triggerSilenciosoExportPBI(); } catch(e) {}
+
+  ui.alert(
+    errores === 0 ? '✅ Sincronización completa' : '⚠️ Sincronización con advertencias',
+    log.join('\n') + '\n\n🕐 ' + new Date().toLocaleString(),
+    ui.ButtonSet.OK
+  );
 }
 
 // ============================================================================
