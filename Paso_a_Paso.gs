@@ -3845,8 +3845,8 @@ function abrirSesionDesdeHoja(pid, pnom) {
     'if(!f||!t){alert("Completa la fecha y tipo");return;}'+
     'google.script.run.withSuccessHandler(function(){google.script.host.close();})'+
     '.withFailureHandler(function(e){alert("Error: "+e.message);})'+
-    '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}
-<\/script>'+
+    '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}'+
+    '<\/script>'+
     '</body></html>'
   ).setWidth(320).setHeight(310).setTitle('📋 Registrar Sesión — '+pnom.split(' ')[0]);
   SpreadsheetApp.getUi().showModelessDialog(html, '📋 Registrar Sesión');
