@@ -764,47 +764,50 @@ function manejarEdicion(e) {
       const fila = e.range.getRow();
       const col  = e.range.getColumn();
       const valN = e.value || '';
-      if (fila < 2 || col !== 15 || !valN) return;
+
+      // Verificar si es la columna de Acción buscando por header
+      const headers = sheet.getRange(1, 1, 1, 100).getValues()[0];
+      const accionCol = headers.findIndex(h => String(h).includes('Acción'));
+      if (fila < 2 || col !== accionCol + 1 || !valN) return;
       e.range.clearContent();
 
-      const rd      = sheet.getRange(fila, 1, 1, 14).getValues()[0];
-      const nombre  = String(rd[2] || '');
-      const telRaw  = String(rd[3] || '').replace(/\D/g,'');
-      const tel     = telRaw.length === 8 ? '502'+telRaw : telRaw;
+      const rowData = sheet.getRange(fila, 1, 1, 100).getValues()[0];
+      const nombreIdx = headers.findIndex(h => String(h).includes('Nombre'));
+      const nombre = String(rowData[nombreIdx] || '');
       const KOBO_FORM = 'https://ee.kobotoolbox.org/x/M9M734If';
 
       if (valN.includes('Enviar') || valN.includes('recordatorio')) {
-        if (!tel) {
-          SpreadsheetApp.getUi().alert('⚠️ Sin teléfono\n\n' + nombre + ' no tiene número registrado.');
-          return;
-        }
-        const esRecordatorio = valN.includes('recordatorio');
-        const msg = encodeURIComponent(
-          'Hola ' + nombre + ', somos el equipo de *Paso a Paso de Creamos Guatemala* 👋\n\n' +
-          (esRecordatorio ? 'Te recordamos que aún tienes pendiente llenar tu formulario de inscripción:\n\n' : 'Te invitamos a llenar tu formulario de inscripción para unirte al programa:\n\n') +
-          '👉 ' + KOBO_FORM + '\n\n' +
-          'Es rápido y fácil. ¡Contamos contigo!'
-        );
+        // Dialog para mostrar el link (presencial, no WhatsApp)
         const html = HtmlService.createHtmlOutput(
-          '<div style="font-family:\'Segoe UI\',sans-serif;padding:20px;text-align:center;">' +
-          '<div style="font-size:36px;margin-bottom:8px;">📲</div>' +
-          '<p style="font-size:13px;color:#555;margin-bottom:4px;">' + (esRecordatorio ? 'Recordatorio para' : 'Enviar formulario Kobo a') + '</p>' +
-          '<p style="font-size:16px;font-weight:700;color:#1a237e;margin-bottom:16px;">' + nombre + '</p>' +
-          '<p style="font-size:11px;color:#777;margin-bottom:16px;">Se abrirá WhatsApp con el link del formulario:<br><strong>' + KOBO_FORM + '</strong></p>' +
-          '<a href="https://wa.me/' + tel + '?text=' + msg + '" target="_blank" ' +
-          'style="display:inline-block;padding:10px 24px;background:#25d366;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;">💬 Abrir WhatsApp</a>' +
-          '<p style="font-size:10px;color:#aaa;margin-top:14px;">Cierra esta ventana después de enviar.</p>' +
+          '<div style="font-family:\'Segoe UI\',sans-serif;padding:24px;text-align:center;max-width:380px;">' +
+          '<div style="font-size:40px;margin-bottom:12px;">📋</div>' +
+          '<h2 style="font-size:16px;color:#1a237e;margin:0 0 6px 0;">Formulario Kobo para</h2>' +
+          '<p style="font-size:15px;font-weight:700;color:#212121;margin:0 0 16px 0;">' + nombre + '</p>' +
+          '<div style="background:#f5f5f5;border-left:4px solid #1a237e;padding:12px;border-radius:4px;margin-bottom:16px;text-align:left;">' +
+          '<p style="margin:0 0 8px 0;font-size:11px;color:#666;font-weight:600;">LINK DEL FORMULARIO:</p>' +
+          '<p style="margin:0;font-family:monospace;font-size:10px;word-break:break-all;color:#1a237e;padding:8px;background:#fff;border-radius:3px;border:1px solid #ddd;">' + KOBO_FORM + '</p>' +
+          '</div>' +
+          '<p style="font-size:11px;color:#666;margin:0 0 14px 0;line-height:1.5;"><strong>Instrucciones:</strong><br>Comparte este link con ' + nombre + ' para que llene el formulario. Puedes:<br>• Copiar y enviar por WhatsApp/SMS<br>• Mostrar en tu teléfono presencialmente</p>' +
+          '<div style="display:flex;gap:8px;">' +
+          '<button onclick="navigator.clipboard.writeText(\'' + KOBO_FORM + '\').then(()=>alert(\'✅ Link copiado\'));" style="flex:1;padding:10px 16px;background:#1a237e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">📋 Copiar link</button>' +
+          '<a href="' + KOBO_FORM + '" target="_blank" style="flex:1;padding:10px 16px;background:#25d366;color:#fff;border:none;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;">🌐 Abrir</a>' +
+          '</div>' +
+          '<p style="font-size:9px;color:#aaa;margin:12px 0 0 0;">Cierra cuando hayas terminado</p>' +
           '</div>'
-        ).setWidth(320).setHeight(280).setTitle('Enviar formulario');
-        SpreadsheetApp.getUi().showModelessDialog(html, 'Enviar formulario Kobo');
-        // Marcar como enviado
-        sheet.getRange(fila, 13).setValue('Formulario enviado');
+        ).setWidth(360).setHeight(420).setTitle('Formulario Kobo — ' + nombre);
+        SpreadsheetApp.getUi().showModelessDialog(html, 'Formulario Kobo');
+        // Marcar como enviado - buscar columna Estado
+        const estadoIdx = headers.findIndex(h => String(h).includes('Estado'));
+        if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1).setValue('Formulario enviado');
 
       } else if (valN.includes('completó')) {
-        sheet.getRange(fila, 13).setValue('Completó formulario');
-        sheet.getRange(fila, 14).setValue(new Date());
-        sheet.getRange(fila, 13, 1, 2).setBackground('#d9ead3');
-        SpreadsheetApp.getUi().alert('✅ Marcado como completado.\n\nCuando ' + nombre + ' llene el formulario Kobo, sus datos llegarán automáticamente a la hoja Maestro.');
+        // Marcar como completado
+        const estadoIdx = headers.findIndex(h => String(h).includes('Estado'));
+        const fechaIdx = headers.findIndex(h => String(h).includes('Fecha Aprobación'));
+        if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1).setValue('Completó formulario');
+        if (fechaIdx >= 0) sheet.getRange(fila, fechaIdx + 1).setValue(new Date());
+        if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1, 1, Math.max(1, Math.abs(fechaIdx - estadoIdx) + 1)).setBackground('#d9ead3');
+        SpreadsheetApp.getUi().alert('✅ Marcado como completado.\n\n' + nombre + ' puede proceder con el siguiente paso del programa.');
       }
       return;
     }
