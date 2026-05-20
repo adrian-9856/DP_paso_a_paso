@@ -764,10 +764,295 @@ function sincronizarConDoc(docId, datos, col, valN, valA) {
 // DASHBOARD
 // ============================================================================
 
+function mostrarDashboardGrafico() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) { SpreadsheetApp.getUi().alert('❌ Instala primero.'); return; }
+
+    const M = CONFIG.COL;
+    const tz = Session.getScriptTimeZone();
+    const datos = hoja.getLastRow() > 1
+      ? hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues().filter(r => r[0])
+      : [];
+
+    if (datos.length === 0) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay datos para mostrar');
+      return;
+    }
+
+    // Preparar datos para gráficos
+    const perfiles = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
+    const estados = {};
+    const dims = [[],[],[],[],[],[]];
+
+    datos.forEach(r => {
+      const perfil = normalizarPerfil(r[M.PERFIL-1]);
+      perfiles[perfil] = (perfiles[perfil]||0)+1;
+
+      const estado = r[M.ESTADO-1]||'Sin estado';
+      estados[estado] = (estados[estado]||0)+1;
+
+      for (let i=0; i<6; i++) {
+        const val = Number(r[M.DIM1+i-1])||0;
+        dims[i].push(val);
+      }
+    });
+
+    // Calcular promedios por dimensión
+    const dimPromedio = dims.map(d => d.length > 0 ? Math.round(d.reduce((a,b)=>a+b,0)/d.length) : 0);
+
+    // Construir datos JSON
+    const datosGrafico = {
+      perfiles: perfiles,
+      estados: estados,
+      dimPromedio: dimPromedio,
+      total: datos.length,
+      timestamp: Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm')
+    };
+
+    const html = crearHTMLDashboardGrafico(datosGrafico);
+    const modal = HtmlService.createHtmlOutput(html)
+      .setWidth(1200)
+      .setHeight(900);
+    SpreadsheetApp.getUi().modelessDialog(modal, '📊 Dashboard — Paso a Paso');
+
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('mostrarDashboardGrafico', e);
+  }
+}
+
+function crearHTMLDashboardGrafico(datos) {
+  const perfiles = datos.perfiles;
+  const estados = datos.estados;
+  const dimPromedio = datos.dimPromedio;
+
+  const estdoArray = Object.entries(estados).sort((a,b)=>b[1]-a[1]);
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      color: white;
+      margin-bottom: 25px;
+      text-align: center;
+    }
+    .header h1 { margin: 0; font-size: 28px; }
+    .header p { margin: 5px 0 0 0; opacity: 0.9; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .chart-box {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .chart-box h3 {
+      margin: 0 0 15px 0;
+      color: #333;
+      font-size: 16px;
+      border-bottom: 3px solid #667eea;
+      padding-bottom: 10px;
+    }
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .stat-card .number {
+      font-size: 32px;
+      font-weight: bold;
+      color: #667eea;
+      margin: 10px 0;
+    }
+    .stat-card .label {
+      font-size: 12px;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .chart-canvas {
+      position: relative;
+      height: 300px;
+      margin: 0 auto;
+    }
+    .dim-chart {
+      grid-column: 1 / -1;
+    }
+    .footer {
+      color: white;
+      text-align: center;
+      font-size: 12px;
+      opacity: 0.8;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 Dashboard — Paso a Paso</h1>
+      <p>Actualizado: ${datos.timestamp}</p>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Total</div>
+        <div class="number">${datos.total}</div>
+        <div class="label">Participantes</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Perfil A</div>
+        <div class="number">${perfiles['Perfil A']}</div>
+        <div class="label">Listos para empleo</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Perfil B</div>
+        <div class="number">${perfiles['Perfil B']}</div>
+        <div class="label">En orientación</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Prom. Puntaje</div>
+        <div class="number">${Math.round(dimPromedio.reduce((a,b)=>a+b,0)/dimPromedio.length)}</div>
+        <div class="label">/ 60</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="chart-box">
+        <h3>🎯 Distribución por Perfil</h3>
+        <div class="chart-canvas">
+          <canvas id="perfilChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-box">
+        <h3>📌 Participantes por Estado</h3>
+        <div class="chart-canvas">
+          <canvas id="estadoChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-box dim-chart">
+      <h3>📈 Promedio por Dimensión</h3>
+      <div class="chart-canvas" style="height: 250px;">
+        <canvas id="dimChart"></canvas>
+      </div>
+    </div>
+
+    <div class="footer">
+      Pulse ESC o haga clic fuera para cerrar
+    </div>
+  </div>
+
+  <script>
+    const chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 } } }
+    };
+
+    // Gráfico de Perfiles (Pie)
+    new Chart(document.getElementById('perfilChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['🟢 Perfil A', '🔵 Perfil B', '🟡 Perfil C', '🔴 Perfil D', '⬜ Sin perfil'],
+        datasets: [{
+          data: [${perfiles['Perfil A']}, ${perfiles['Perfil B']}, ${perfiles['Perfil C']}, ${perfiles['Perfil D']}, ${perfiles['Sin perfil']}],
+          backgroundColor: ['#43a047', '#1e88e5', '#fb8c00', '#e53935', '#bdbdbd'],
+          borderColor: 'white',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        ...chartOptions,
+        plugins: { ...chartOptions.plugins, tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed } } }
+      }
+    });
+
+    // Gráfico de Estados (Bar)
+    new Chart(document.getElementById('estadoChart'), {
+      type: 'bar',
+      data: {
+        labels: ${JSON.stringify(estdoArray.map(e=>e[0]))},
+        datasets: [{
+          label: 'Cantidad',
+          data: ${JSON.stringify(estdoArray.map(e=>e[1]))},
+          backgroundColor: '#667eea',
+          borderColor: '#667eea',
+          borderWidth: 1,
+          borderRadius: 6
+        }]
+      },
+      options: {
+        ...chartOptions,
+        indexAxis: 'y',
+        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+      }
+    });
+
+    // Gráfico de Dimensiones (Line)
+    new Chart(document.getElementById('dimChart'), {
+      type: 'line',
+      data: {
+        labels: ['Capital Educativo', 'Capital Laboral', 'Habilidades Digitales', 'Claridad Vocacional', 'Barreras', 'Red de Apoyo'],
+        datasets: [{
+          label: 'Promedio',
+          data: ${JSON.stringify(dimPromedio)},
+          borderColor: '#667eea',
+          backgroundColor: 'rgba(102, 126, 234, 0.1)',
+          borderWidth: 3,
+          pointRadius: 6,
+          pointBackgroundColor: '#667eea',
+          pointBorderColor: 'white',
+          pointBorderWidth: 2,
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        ...chartOptions,
+        scales: { y: { beginAtZero: true, max: 60, ticks: { stepSize: 10 } } }
+      }
+    });
+  </script>
+</body>
+</html>
+  `;
+}
+
 function abrirDashboard() {
   try {
-    actualizarDashboard();
-    SpreadsheetApp.getActive().setActiveSheet(SpreadsheetApp.getActive().getSheetByName('Dashboard'));
+    mostrarDashboardGrafico();
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
@@ -975,77 +1260,63 @@ function verFicha() {
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
-// Lee el Maestro + DP_Empleabilidad y combina sin duplicados
+// Lee SOLO el Maestro (rápido, con caché)
 function obtenerParticipantes() {
-  const ss  = SpreadsheetApp.getActive();
-  const M   = CONFIG.COL;
-  const map = new Map();
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('p_maestro');
+  if (cached) return JSON.parse(cached);
 
-  // 1. Hoja Maestro
+  const ss = SpreadsheetApp.getActive();
   const maestro = ss.getSheetByName(CONFIG.HOJA);
-  if (maestro && maestro.getLastRow() > 1) {
-    maestro.getRange(2, 1, maestro.getLastRow()-1, 26).getValues()
-      .filter(r => r[M.ID-1])
-      .forEach(r => {
-        const id = String(r[M.ID-1]);
-        map.set(id, {
-          id, fuente: 'Maestro',
-          nombre:    String(r[M.NOMBRE-1]    || ''),
-          perfil:    String(r[M.PERFIL-1]    || ''),
-          prioridad: String(r[M.PRIORIDAD-1] || ''),
-          puntaje:   Number(r[M.PUNTAJE-1])  || 0,
-          estado:    String(r[M.ESTADO-1]    || ''),
-          dpi:       String(r[M.DPI-1]       || ''),
-          edad:      String(r[M.EDAD-1]      || ''),
-          genero:    String(r[M.GENERO-1]    || ''),
-          telefono:  String(r[M.TELEFONO-1]  || ''),
-          zona:      String(r[M.ZONA-1]      || ''),
-          email:     String(r[M.EMAIL-1]     || ''),
-          educacion: String(r[M.EDUCACION-1] || ''),
-          laboral:   String(r[M.LABORAL-1]   || ''),
-          fortalezas:String(r[M.FORTALEZAS-1]|| ''),
-          objetivo:  String(r[M.OBJETIVO-1]  || ''),
-          docUrl:    String(r[M.DOC_URL-1]   || ''),
-          dims: [M.DIM1,M.DIM2,M.DIM3,M.DIM4,M.DIM5,M.DIM6].map(c => Number(r[c-1])||0)
-        });
-      });
-  }
+  if (!maestro || maestro.getLastRow() < 2) return [];
 
-  // 2. Hoja DP_Empleabilidad (fuente externa)
+  const M = CONFIG.COL;
+  const resultado = maestro.getRange(2, 1, maestro.getLastRow()-1, 26).getValues()
+    .filter(r => r[M.ID-1])
+    .map(r => ({
+      id:        String(r[M.ID-1]        || ''),
+      nombre:    String(r[M.NOMBRE-1]    || ''),
+      perfil:    String(r[M.PERFIL-1]    || ''),
+      prioridad: String(r[M.PRIORIDAD-1] || ''),
+      puntaje:   Number(r[M.PUNTAJE-1])  || 0,
+      estado:    String(r[M.ESTADO-1]    || ''),
+      dpi:       String(r[M.DPI-1]       || ''),
+      edad:      String(r[M.EDAD-1]      || ''),
+      genero:    String(r[M.GENERO-1]    || ''),
+      telefono:  String(r[M.TELEFONO-1]  || ''),
+      zona:      String(r[M.ZONA-1]      || ''),
+      email:     String(r[M.EMAIL-1]     || ''),
+      educacion: String(r[M.EDUCACION-1] || ''),
+      laboral:   String(r[M.LABORAL-1]   || ''),
+      fortalezas:String(r[M.FORTALEZAS-1]|| ''),
+      objetivo:  String(r[M.OBJETIVO-1]  || ''),
+      docUrl:    String(r[M.DOC_URL-1]   || ''),
+      fuente:    'Maestro',
+      dims: [M.DIM1,M.DIM2,M.DIM3,M.DIM4,M.DIM5,M.DIM6].map(c => Number(r[c-1])||0)
+    }));
+
+  cache.put('p_maestro', JSON.stringify(resultado), 300);
+  return resultado;
+}
+
+// Lee DP_Empleabilidad si es necesario (llamada separada)
+function obtenerParticipantesDP() {
   try {
-    const ext  = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID)
-                   .getSheetByName(DP_EMPLEABILIDAD.HOJA);
-    const C    = DP_EMPLEABILIDAD.C;
-    if (ext && ext.getLastRow() > 1) {
-      ext.getRange(2, 1, ext.getLastRow()-1, DP_EMPLEABILIDAD.NCOLS).getValues()
-        .filter(r => r[C.ID])
-        .forEach(r => {
-          const id = String(r[C.ID]);
-          if (!map.has(id)) {
-            map.set(id, {
-              id, fuente: 'DP_Emplea',
-              nombre:    String(r[C.NOMBRE]    || ''),
-              perfil:    '',
-              prioridad: '',
-              puntaje:   0,
-              estado:    r[C.ACTIVO] ? 'Activo' : 'Inactivo',
-              dpi:       String(r[C.DPI]       || ''),
-              edad:      String(r[C.EDAD]      || ''),
-              genero:    String(r[C.GENERO]    || ''),
-              telefono:  String(r[C.TELEFONO]  || ''),
-              zona:      '', email: '',
-              educacion: String(r[C.EDUCACION] || ''),
-              laboral:   '', fortalezas: '',
-              objetivo:  String(r[C.FORMACION] || ''),
-              docUrl:    '',
-              dims:      [0,0,0,0,0,0]
-            });
-          }
-        });
-    }
-  } catch(e) { /* DP_Empleabilidad no accesible — se omite */ }
-
-  return Array.from(map.values());
+    const ext = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID)
+                  .getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    if (!ext || ext.getLastRow() < 2) return [];
+    const C = DP_EMPLEABILIDAD.C;
+    return ext.getRange(2, 1, ext.getLastRow()-1, 12).getValues()
+      .filter(r => r[C.ID])
+      .map(r => ({
+        id: String(r[C.ID]||''), nombre: String(r[C.NOMBRE]||''), fuente: 'DP_Emplea',
+        perfil:'', prioridad:'', puntaje:0, estado:r[C.ACTIVO]?'Activo':'Inactivo',
+        dpi:String(r[C.DPI]||''), edad:String(r[C.EDAD]||''), genero:String(r[C.GENERO]||''),
+        telefono:String(r[C.TELEFONO]||''), zona:'', email:'',
+        educacion:String(r[C.EDUCACION]||''), laboral:'', fortalezas:'',
+        objetivo:String(r[C.FORMACION]||''), docUrl:'', dims:[0,0,0,0,0,0]
+      }));
+  } catch(e) { return []; }
 }
 
 // HTML completo de la app de fichas — modal centrado, dropdown de acciones, multi-fuente
