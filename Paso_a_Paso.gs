@@ -152,6 +152,8 @@ function onOpen() {
         .addItem('📈 Analytics',               'abrirAnalytics')
         .addItem('📋 Calidad de Datos',        'analizarCalidadDatos')
         .addItem('📝 Reporte Mensual',         'generarReporteMensual')
+        .addSeparator()
+        .addItem('⚡ Exportar para Power BI',  'exportarParaPowerBI')
       )
       // ── Herramientas Kobo ──
       .addSubMenu(ui.createMenu('🔬 Herramientas Kobo')
@@ -1068,7 +1070,6 @@ function actualizarDashboard(ss) {
     let dash = ss.getSheetByName('Dashboard');
     if (!dash) dash = ss.insertSheet('Dashboard');
 
-    // Limpiar contenido, formatos y gráficos anteriores
     dash.clear();
     dash.clearFormats();
     dash.getCharts().forEach(c => dash.removeChart(c));
@@ -1083,128 +1084,212 @@ function actualizarDashboard(ss) {
     // ── Calcular métricas ──
     const perfiles = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
     const estados  = {};
+    const generos  = {};
     const dims     = [[],[],[],[],[],[]];
     const puntajes = [];
-    let ingresadosMes = 0;
-    const mes = ahora.getMonth(), anio = ahora.getFullYear();
+    const mensuales = {};
+    let enAcomp = 0, conexiones = 0, ingresadosMes = 0;
+    const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
 
     datos.forEach(r => {
       const p = normalizarPerfil(r[M.PERFIL-1]);
       perfiles[p] = (perfiles[p]||0)+1;
       const e = r[M.ESTADO-1]||'Sin estado';
       estados[e] = (estados[e]||0)+1;
+      if (['Mentoría','Orientación'].includes(e)) enAcomp++;
+      if (['Cierre','Completado'].includes(e)) conexiones++;
+      const gen = String(r[M.GENERO-1]||'Sin dato');
+      generos[gen] = (generos[gen]||0)+1;
       const pt = Number(r[M.PUNTAJE-1]);
       if (pt > 0) puntajes.push(pt);
       for (let i=0;i<6;i++) dims[i].push(Number(r[M.DIM1+i-1])||0);
       const f = r[M.FECHA-1];
-      if (f instanceof Date && f.getMonth()===mes && f.getFullYear()===anio) ingresadosMes++;
+      if (f instanceof Date) {
+        const k = Utilities.formatDate(f,tz,'yyyy-MM');
+        mensuales[k] = (mensuales[k]||0)+1;
+        if (f.getMonth()===mesAct && f.getFullYear()===anioAct) ingresadosMes++;
+      }
     });
 
-    const total      = datos.length;
-    const promPuntaje = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
-    const dimProm    = dims.map(d => d.length ? Math.round(d.reduce((a,b)=>a+b,0)/d.length*10)/10 : 0);
-    const estEntries = Object.entries(estados).sort((a,b)=>b[1]-a[1]);
+    const total     = datos.length;
+    const promPt    = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
+    const dimProm   = dims.map(d => d.length ? Math.round(d.reduce((a,b)=>a+b,0)/d.length*10)/10 : 0);
+    const estList   = Object.entries(estados).sort((a,b)=>b[1]-a[1]);
+    const genList   = Object.entries(generos).sort((a,b)=>b[1]-a[1]);
+    const tasaGrad  = total > 0 ? (conexiones/total*100).toFixed(1)+'%' : '0%';
 
-    // ── Dimensiones de columnas ──
-    for (let c=1;c<=8;c++) dash.setColumnWidth(c,130);
-    dash.setColumnWidth(9,15);
-    for (let c=10;c<=12;c++) dash.setColumnWidth(c,130);
+    // ── Helper functions ──
+    const W = 6;
+    const H = (r,h) => dash.setRowHeight(r,h);
+    const titSec = (row, txt, bg) => {
+      H(row,30);
+      dash.getRange(row,1,1,W).merge().setValue(txt)
+        .setFontSize(11).setFontWeight('bold').setFontColor('#fff')
+        .setBackground(bg||'#3949ab').setHorizontalAlignment('center').setVerticalAlignment('middle');
+    };
+    const subHdr = (row, cols) => {
+      H(row,22);
+      cols.forEach((c,i) => dash.getRange(row,i+1).setValue(c)
+        .setFontWeight('bold').setBackground('#e8eaf6').setFontColor('#333')
+        .setHorizontalAlignment(i>0?'center':'left').setFontSize(10));
+    };
+    const dataRow = (row, cells, bgs, fgs) => {
+      H(row,22);
+      cells.forEach((v,i) => {
+        const r = dash.getRange(row,i+1).setValue(v).setFontSize(10)
+          .setHorizontalAlignment(i>0?'center':'left');
+        if (bgs&&bgs[i]) r.setBackground(bgs[i]);
+        if (fgs&&fgs[i]) r.setFontColor(fgs[i]).setFontWeight('bold');
+      });
+    };
+    const totRow = (row, cells) => {
+      H(row,22);
+      cells.forEach((v,i) => dash.getRange(row,i+1).setValue(v)
+        .setFontWeight('bold').setBackground('#e8eaf6').setFontColor('#1a237e')
+        .setHorizontalAlignment(i>0?'center':'left').setFontSize(10));
+    };
+    const spacer = (row) => { H(row,14); };
 
-    // ── ENCABEZADO (filas 1-2) ──
-    dash.setRowHeight(1,50); dash.setRowHeight(2,28); dash.setRowHeight(3,14);
-    dash.getRange('A1:H1').merge()
-      .setValue('📊 DASHBOARD — PASO A PASO')
-      .setFontSize(20).setFontWeight('bold').setFontColor('#fff')
+    // ── COLUMNAS ──
+    dash.setColumnWidth(1,200);
+    dash.setColumnWidth(2,90);
+    dash.setColumnWidth(3,90);
+    dash.setColumnWidth(4,90);
+    dash.setColumnWidth(5,90);
+    dash.setColumnWidth(6,90);
+
+    let r = 1;
+
+    // ════ ENCABEZADO ════
+    H(r,48);
+    dash.getRange(r,1,1,W).merge()
+      .setValue('📊  REPORTE DE SEGUIMIENTO — INCLUSIÓN LABORAL')
+      .setFontSize(17).setFontWeight('bold').setFontColor('#fff')
       .setBackground('#1a237e').setHorizontalAlignment('center').setVerticalAlignment('middle');
-    dash.getRange('A2:H2').merge()
-      .setValue('Actualizado: '+Utilities.formatDate(ahora,tz,'dd/MM/yyyy HH:mm')
-               +'     |     '+total+' participantes registrados')
+    r++;
+    H(r,26);
+    dash.getRange(r,1,1,W).merge()
+      .setValue('Actualizado: '+Utilities.formatDate(ahora,tz,'d/M/yyyy  HH:mm'))
       .setFontSize(10).setFontColor('#c5cae9').setBackground('#283593')
       .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    r++; spacer(r); r++;
 
-    // ── KPI CARDS (filas 4-6) ──
-    dash.setRowHeight(4,22); dash.setRowHeight(5,45); dash.setRowHeight(6,22);
-    const cards = [
-      { label:'TOTAL',            val:total,                              sub:'Participantes',      bg:'#e8eaf6', fg:'#1a237e' },
-      { label:'PERFIL A',         val:perfiles['Perfil A'],               sub:'Listos para empleo', bg:'#d9ead3', fg:'#274e13' },
-      { label:'EN DESARROLLO',    val:perfiles['Perfil B']+perfiles['Perfil C'], sub:'Perfil B + C',      bg:'#cfe2f3', fg:'#1c4587' },
-      { label:'PUNTAJE PROMEDIO', val:promPuntaje+' / 60',                sub:'Diagnóstico',        bg:'#fff2cc', fg:'#7f6000' },
+    // ════ RESUMEN GENERAL ════
+    titSec(r,'📋  RESUMEN GENERAL','#1565c0'); r++;
+    const kpis = [
+      {lbl:'Registrados (IL.P.01)',  val:total,          bg:'#e8eaf6', fg:'#1a237e'},
+      {lbl:'Acompañamiento (IL.P.02)',val:enAcomp,        bg:'#e8f5e9', fg:'#1b5e20'},
+      {lbl:'Conexiones lab. (IL.R.07)',val:conexiones,    bg:'#e3f2fd', fg:'#01579b'},
+      {lbl:'Puntaje prom.',           val:promPt+'/60',   bg:'#fff8e1', fg:'#e65100'},
+      {lbl:'Perfil A  ✓ Empleo',     val:perfiles['Perfil A'], bg:'#d9ead3', fg:'#274e13'},
+      {lbl:'Este mes',                val:ingresadosMes,  bg:'#f3e5f5', fg:'#6a1b9a'},
     ];
-    cards.forEach((card,i) => {
-      const sc = i*2+1;
-      dash.getRange(4,sc,1,2).merge().setValue(card.label)
-        .setFontSize(8).setFontWeight('bold').setFontColor('#777')
-        .setHorizontalAlignment('center').setBackground(card.bg);
-      dash.getRange(5,sc,1,2).merge().setValue(card.val)
-        .setFontSize(26).setFontWeight('bold').setFontColor(card.fg)
-        .setHorizontalAlignment('center').setBackground(card.bg);
-      dash.getRange(6,sc,1,2).merge().setValue(card.sub)
-        .setFontSize(8).setFontColor('#999')
-        .setHorizontalAlignment('center').setBackground(card.bg);
+    // 2 filas de KPI: label y valor
+    H(r,22);
+    kpis.forEach((k,i) => dash.getRange(r,i+1).setValue(k.lbl)
+      .setFontSize(8).setFontWeight('bold').setFontColor('#666').setHorizontalAlignment('center').setBackground(k.bg));
+    r++;
+    H(r,42);
+    kpis.forEach((k,i) => dash.getRange(r,i+1).setValue(k.val)
+      .setFontSize(22).setFontWeight('bold').setFontColor(k.fg).setHorizontalAlignment('center')
+      .setBackground(k.bg).setVerticalAlignment('middle'));
+    r++;
+    spacer(r); r++;
+
+    // ════ DISTRIBUCIÓN POR ESTADO ════
+    titSec(r,'📌  DISTRIBUCIÓN POR ESTADO / ETAPA','#1565c0'); r++;
+    subHdr(r,['Estado / Etapa','Participantes','%','','','']); r++;
+    estList.forEach(([est,cnt]) => {
+      const pct = total>0 ? (cnt/total*100).toFixed(1)+'%' : '0%';
+      dataRow(r,[est,cnt,pct,'','','']); r++;
     });
+    totRow(r,['TOTAL',total,'100%','','','']); r++;
+    spacer(r); r++;
 
-    // ── DATOS AUXILIARES para gráficos (cols J-L, se ocultan) ──
-    // Perfiles (J1:K6)
-    dash.getRange(1,10,1,2).setValues([['Perfil','Cantidad']]);
-    dash.getRange(2,10,5,2).setValues([
-      ['Perfil A', perfiles['Perfil A']],
-      ['Perfil B', perfiles['Perfil B']],
-      ['Perfil C', perfiles['Perfil C']],
-      ['Perfil D', perfiles['Perfil D']],
-      ['Sin perfil', perfiles['Sin perfil']||0]
-    ]);
+    // ════ DISTRIBUCIÓN POR PERFIL ════
+    titSec(r,'🎯  DISTRIBUCIÓN POR PERFIL (Diagnóstico IL)','#1565c0'); r++;
+    subHdr(r,['Perfil','Participantes','%','Descripción','','']); r++;
+    const pDesc = {
+      'Perfil A':'Listo para empleo',
+      'Perfil B':'Orientación vocacional',
+      'Perfil C':'Desarrollo de capacidades',
+      'Perfil D':'Barreras críticas (URGENTE)',
+      'Sin perfil':'Sin asignar'
+    };
+    const pCol = {
+      'Perfil A':{bg:'#d9ead3',fg:'#274e13'},
+      'Perfil B':{bg:'#cfe2f3',fg:'#1c4587'},
+      'Perfil C':{bg:'#fff2cc',fg:'#7f6000'},
+      'Perfil D':{bg:'#f4cccc',fg:'#660000'},
+      'Sin perfil':{bg:'#f5f5f5',fg:'#777'}
+    };
+    Object.entries(perfiles).forEach(([prf,cnt]) => {
+      const c = pCol[prf]||{bg:'#f5f5f5',fg:'#777'};
+      const pct = total>0 ? (cnt/total*100).toFixed(1)+'%' : '0%';
+      H(r,22);
+      dash.getRange(r,1).setValue(prf).setFontWeight('bold').setBackground(c.bg).setFontColor(c.fg).setFontSize(10);
+      dash.getRange(r,2).setValue(cnt).setHorizontalAlignment('center').setBackground(c.bg).setFontColor(c.fg).setFontWeight('bold').setFontSize(10);
+      dash.getRange(r,3).setValue(pct).setHorizontalAlignment('center').setBackground(c.bg).setFontColor(c.fg).setFontSize(10);
+      dash.getRange(r,4,1,3).merge().setValue(pDesc[prf]||'').setBackground(c.bg).setFontColor(c.fg).setFontSize(10).setFontStyle('italic');
+      r++;
+    });
+    totRow(r,['TOTAL',total,'100%','','','']); r++;
+    spacer(r); r++;
 
-    // Estados (J8:K...)
-    dash.getRange(8,10,1,2).setValues([['Estado','Cantidad']]);
-    if (estEntries.length) dash.getRange(9,10,estEntries.length,2).setValues(estEntries);
+    // ════ DESAGREGACIÓN POR GÉNERO (requerido por indicadores IL) ════
+    titSec(r,'♀♂  DESAGREGACIÓN POR GÉNERO (requerido IL.P.01, IL.R.07)','#37474f'); r++;
+    subHdr(r,['Género','Participantes','%','','','']); r++;
+    genList.forEach(([gen,cnt]) => {
+      const pct = total>0 ? (cnt/total*100).toFixed(1)+'%' : '0%';
+      dataRow(r,[gen,cnt,pct,'','','']); r++;
+    });
+    totRow(r,['TOTAL',total,'100%','','','']); r++;
+    spacer(r); r++;
 
-    // Dimensiones (J16:K22)
-    dash.getRange(16,10,1,2).setValues([['Dimensión','Promedio']]);
-    dash.getRange(17,10,6,2).setValues([
-      ['Cap. Educativo',    dimProm[0]],
-      ['Cap. Laboral',      dimProm[1]],
-      ['Hab. Digitales',    dimProm[2]],
-      ['Claridad Vocal.',   dimProm[3]],
-      ['Barreras',          dimProm[4]],
-      ['Red de Apoyo',      dimProm[5]]
-    ]);
+    // ════ DIMENSIONES DIAGNÓSTICO ════
+    titSec(r,'📈  PROMEDIO DIMENSIONES DE DIAGNÓSTICO (sobre 10)','#00695c'); r++;
+    subHdr(r,['Dimensión','Promedio','Nivel','','','']); r++;
+    const dimLabels = [
+      '📚 Cap. Educativo (Dim 1)',
+      '💼 Cap. Laboral (Dim 2)',
+      '💻 Hab. Digitales (Dim 3)',
+      '🎯 Claridad Vocacional (Dim 4)',
+      '🚧 Barreras Estructurales (Dim 5)',
+      '🤝 Red de Apoyo (Dim 6)'
+    ];
+    dimLabels.forEach((dim,i) => {
+      const val = dimProm[i];
+      const bg = val>=7?'#c8e6c9':val>=4?'#fff9c4':val>0?'#ffcdd2':'#f5f5f5';
+      const fg = val>=7?'#1b5e20':val>=4?'#f57f17':val>0?'#c62828':'#999';
+      const niv = val>=7?'Alto':val>=4?'Medio':val>0?'Bajo':'Sin datos';
+      H(r,22);
+      dash.getRange(r,1).setValue(dim).setFontSize(10);
+      dash.getRange(r,2).setValue(val).setBackground(bg).setFontColor(fg).setFontWeight('bold').setHorizontalAlignment('center').setFontSize(10);
+      dash.getRange(r,3).setValue(niv).setBackground(bg).setFontColor(fg).setHorizontalAlignment('center').setFontSize(10);
+      dash.getRange(r,4,1,3).merge().setValue('').setBackground('#fafafa');
+      r++;
+    });
+    spacer(r); r++;
 
-    // ── GRÁFICOS EMBEBIDOS ──
-    if (total > 0) {
-      // Pie — Perfiles
-      dash.insertChart(dash.newChart()
-        .setChartType(Charts.ChartType.PIE)
-        .addRange(dash.getRange('J1:K6'))
-        .setPosition(8, 1, 5, 5)
-        .setOption('title','Distribución por Perfil')
-        .setOption('colors',['#43a047','#1e88e5','#fb8c00','#e53935','#bdbdbd'])
-        .setOption('pieHole', 0.35)
-        .setOption('width',430).setOption('height',270)
-        .build());
+    // ════ INGRESOS POR MES (últimos 12) ════
+    titSec(r,'📅  INGRESOS POR MES (últimos meses)','#01579b'); r++;
+    subHdr(r,['Mes','Nuevos','Acumulado','','','']); r++;
+    const mesKeys = Object.keys(mensuales).sort().slice(-12);
+    let acum = total - mesKeys.reduce((a,k) => a+(mensuales[k]||0),0);
+    mesKeys.forEach(k => {
+      const cnt = mensuales[k]||0;
+      acum += cnt;
+      const label = Utilities.formatDate(new Date(k+'-01'),tz,'MMM yyyy');
+      dataRow(r,[label,cnt,acum,'','','']); r++;
+    });
+    spacer(r); r++;
 
-      // Bar — Estados
-      dash.insertChart(dash.newChart()
-        .setChartType(Charts.ChartType.BAR)
-        .addRange(dash.getRange(8,10,estEntries.length+1,2))
-        .setPosition(8, 5, 5, 5)
-        .setOption('title','Participantes por Estado')
-        .setOption('colors',['#3949ab'])
-        .setOption('width',430).setOption('height',270)
-        .build());
-
-      // Column — Dimensiones (ancho completo)
-      dash.insertChart(dash.newChart()
-        .setChartType(Charts.ChartType.COLUMN)
-        .addRange(dash.getRange('J16:K22'))
-        .setPosition(25, 1, 5, 5)
-        .setOption('title','Promedio por Dimensión de Diagnóstico (sobre 10)')
-        .setOption('colors',['#5c6bc0'])
-        .setOption('width',870).setOption('height',240)
-        .build());
-    }
-
-    // Ocultar columnas auxiliares
-    dash.hideColumns(10, 3);
+    // ════ NOTA POWER BI ════
+    H(r,28);
+    dash.getRange(r,1,1,W).merge()
+      .setValue('⚡  Para actualizar Power BI: menú  📊 PASO A PASO → Exportar para Power BI')
+      .setFontSize(9).setFontColor('#fff').setBackground('#455a64')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle').setFontStyle('italic');
 
   } catch(e) {
     logError('actualizarDashboard', e);
@@ -1312,6 +1397,133 @@ function generarReporteMensual() {
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
     logError('generarReporteMensual', e);
+  }
+}
+
+// ── Exportar datos para Power BI ──
+function exportarParaPowerBI() {
+  try {
+    const ss      = SpreadsheetApp.getActive();
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro) { SpreadsheetApp.getUi().alert('❌ No hay datos.'); return; }
+
+    const M  = CONFIG.COL;
+    const tz = Session.getScriptTimeZone();
+    const ahora = new Date();
+
+    // ── PBI_Participantes — tabla plana (1 fila = 1 participante) ──
+    let pbiP = ss.getSheetByName('PBI_Participantes');
+    if (!pbiP) pbiP = ss.insertSheet('PBI_Participantes');
+    else pbiP.clear();
+
+    const hP = ['ID','Fecha','Nombre','DPI','Edad','Genero','Telefono','Zona','Email',
+                'Educacion','Situacion_Laboral','Fortalezas','Objetivo',
+                'Perfil','Prioridad','Puntaje',
+                'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional','Dim_Barreras','Dim_Red_Apoyo',
+                'Estado','FuenteActualizacion'];
+    pbiP.getRange(1,1,1,hP.length).setValues([hP])
+      .setFontWeight('bold').setBackground('#1a237e').setFontColor('#fff');
+
+    const datos = maestro.getLastRow() > 1
+      ? maestro.getRange(2,1,maestro.getLastRow()-1,26).getValues().filter(r => r[M.ID-1])
+      : [];
+
+    if (datos.length) {
+      const filas = datos.map(r => [
+        r[M.ID-1], r[M.FECHA-1], r[M.NOMBRE-1], r[M.DPI-1],
+        Number(r[M.EDAD-1])||'', r[M.GENERO-1], r[M.TELEFONO-1], r[M.ZONA-1], r[M.EMAIL-1],
+        r[M.EDUCACION-1], r[M.LABORAL-1], r[M.FORTALEZAS-1], r[M.OBJETIVO-1],
+        normalizarPerfil(r[M.PERFIL-1]), normalizarPrioridad(r[M.PRIORIDAD-1]),
+        Number(r[M.PUNTAJE-1])||0,
+        Number(r[M.DIM1-1])||0, Number(r[M.DIM2-1])||0, Number(r[M.DIM3-1])||0,
+        Number(r[M.DIM4-1])||0, Number(r[M.DIM5-1])||0, Number(r[M.DIM6-1])||0,
+        r[M.ESTADO-1], ahora
+      ]);
+      pbiP.getRange(2,1,filas.length,hP.length).setValues(filas);
+    }
+    pbiP.setFrozenRows(1);
+    pbiP.autoResizeColumns(1,hP.length);
+
+    // ── PBI_Indicadores — tabla de KPIs con código IL ──
+    let pbiI = ss.getSheetByName('PBI_Indicadores');
+    if (!pbiI) pbiI = ss.insertSheet('PBI_Indicadores');
+    else pbiI.clear();
+
+    const hI = ['Codigo','Indicador','Valor_Texto','Valor_Num','Criterio','Periodo','Fecha_Actualizacion'];
+    pbiI.getRange(1,1,1,hI.length).setValues([hI])
+      .setFontWeight('bold').setBackground('#1a237e').setFontColor('#fff');
+
+    const perfiles = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0};
+    const estados  = {};
+    const generos  = {};
+    const puntajes = [];
+    let enAcomp = 0, conexiones = 0, ingMes = 0;
+    const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+
+    datos.forEach(r => {
+      const p = normalizarPerfil(r[M.PERFIL-1]);
+      if (perfiles[p] !== undefined) perfiles[p]++;
+      const e = r[M.ESTADO-1]||'Sin estado';
+      estados[e] = (estados[e]||0)+1;
+      const gen = String(r[M.GENERO-1]||'Sin dato');
+      generos[gen] = (generos[gen]||0)+1;
+      if (['Mentoría','Orientación'].includes(e)) enAcomp++;
+      if (['Cierre','Completado'].includes(e)) conexiones++;
+      const pt = Number(r[M.PUNTAJE-1]);
+      if (pt > 0) puntajes.push(pt);
+      const f = r[M.FECHA-1];
+      if (f instanceof Date && f.getMonth()===mesAct && f.getFullYear()===anioAct) ingMes++;
+    });
+
+    const total   = datos.length;
+    const promPt  = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
+    const periodo = Utilities.formatDate(ahora, tz, 'MMMM yyyy');
+    const tasaGrad = total>0 ? Math.round(conexiones/total*100) : 0;
+
+    const kpiRows = [
+      ['IL.P.01','Número de participantes en el programa IL',               total,         total,    'Pertinencia', periodo, ahora],
+      ['IL.P.02','Participantes en acompañamiento profesional',              enAcomp,       enAcomp,  'Pertinencia', periodo, ahora],
+      ['IL.P.04','Personas alcanzadas (registradas este mes)',               ingMes,        ingMes,   'Pertinencia', periodo, ahora],
+      ['IL.R.07','Número de conexiones laborales (Cierre/Completado)',       conexiones,    conexiones,'Eficacia',   periodo, ahora],
+      ['IL.R.05','Tasa de graduación % (sobre total)',                       tasaGrad+'%',  tasaGrad, 'Eficacia',    periodo, ahora],
+      ['IL.P.01_A','Perfil A — Listos para empleo',                         perfiles['Perfil A'], perfiles['Perfil A'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_B','Perfil B — Orientación vocacional',                     perfiles['Perfil B'], perfiles['Perfil B'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_C','Perfil C — Desarrollo de capacidades',                  perfiles['Perfil C'], perfiles['Perfil C'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_D','Perfil D — Barreras críticas (URGENTE)',                perfiles['Perfil D'], perfiles['Perfil D'], 'Desagregación', periodo, ahora],
+      ['DIAG.PROM','Puntaje promedio diagnóstico (sobre 60)',                promPt+'/60',  promPt,   'Diagnóstico', periodo, ahora],
+    ];
+
+    // Agregar filas por estado
+    Object.entries(estados).sort((a,b)=>b[1]-a[1]).forEach(([est,cnt]) => {
+      kpiRows.push(['ESTADO_'+est.toUpperCase().replace(/\s/g,'_'), 'Participantes en estado: '+est, cnt, cnt, 'Estado', periodo, ahora]);
+    });
+
+    // Agregar filas por género (desagregación)
+    Object.entries(generos).sort((a,b)=>b[1]-a[1]).forEach(([gen,cnt]) => {
+      kpiRows.push(['GENERO_'+gen.toUpperCase().replace(/\s/g,'_'), 'Género: '+gen, cnt, cnt, 'Género', periodo, ahora]);
+    });
+
+    pbiI.getRange(2,1,kpiRows.length,hI.length).setValues(kpiRows);
+    pbiI.setFrozenRows(1);
+    pbiI.setColumnWidth(2,320);
+    pbiI.autoResizeColumns(1,1);
+
+    SpreadsheetApp.getUi().alert(
+      '✅ EXPORTACIÓN PARA POWER BI LISTA\n\n'+
+      '📊 PBI_Participantes: '+total+' registros\n'+
+      '📈 PBI_Indicadores: '+kpiRows.length+' filas (IL.P.01, IL.P.02, IL.R.07…)\n\n'+
+      '🔗 CONECTAR EN POWER BI DESKTOP:\n'+
+      '1. Inicio → Obtener datos → Google Sheets\n'+
+      '2. Pega la URL de este Google Sheets\n'+
+      '3. Selecciona: PBI_Participantes y PBI_Indicadores\n'+
+      '4. La conexión se actualiza automáticamente al hacer esta exportación\n\n'+
+      '💡 Recomendado: ejecutar esta función 1 vez al día/semana\n'+
+      '   o crear un trigger automático mensual.'
+    );
+
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('exportarParaPowerBI', e);
   }
 }
 
