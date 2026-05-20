@@ -2320,12 +2320,16 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 .btn-acc.ghost{background:#f0f2ff;color:#1a237e;border:1px solid #c5cae9}
 .btn-acc.ghost:hover{background:#e8eaf6}
 .dropdown{position:relative}
-.dropdown-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid #e0e0e0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.14);z-index:999;min-width:200px;overflow:hidden}
+.dropdown-menu{display:none;position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid #e0e0e0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.14);z-index:999;min-width:260px;overflow:hidden}
 .dropdown-menu.open{display:block}
 .dm-item{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:12px;cursor:pointer;color:#333;border-bottom:1px solid #f5f5f5}
 .dm-item:last-child{border:none}
 .dm-item:hover{background:#e8eaf6;color:#1a237e}
 .dm-ico{font-size:14px;width:20px;text-align:center}
+.dm-txt{display:flex;flex-direction:column;gap:1px}
+.dm-lbl{font-size:12px;font-weight:600;line-height:1.2}
+.dm-sub{font-size:9px;color:#9e9e9e;line-height:1.2}
+.dm-item:hover .dm-sub{color:#7986cb}
 /* ── BUSCAR & FILTROS ── */
 .buscar{padding:8px 12px;background:#fff;border-bottom:1px solid #e8eaf6;flex-shrink:0}
 .buscar input{width:100%;padding:7px 12px;border:1px solid #c5cae9;border-radius:20px;font-size:12px;outline:none;background:#f8f9ff}
@@ -2452,15 +2456,15 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
   <!-- DROPDOWN DE ACCIONES -->
   <div class="acciones-bar">
     <div class="dropdown" id="dd">
-      <button class="btn-acc primary" onclick="toggleDD(event)">⚡ Acciones ▾</button>
+      <button class="btn-acc primary" onclick="toggleDD(event)">⚡ Gestión ▾</button>
       <div class="dropdown-menu" id="ddMenu">
-        <div class="dm-item" onclick="run('agregarParticipanteManual')"><span class="dm-ico">➕</span> Agregar Participante</div>
-        <div class="dm-item" onclick="run('editarParticipante')"><span class="dm-ico">✏️</span> Editar Participante</div>
-        <div class="dm-item" onclick="run('abrirFormDerivacion')"><span class="dm-ico">➡️</span> Derivar Participante</div>
-        <div class="dm-item" onclick="run('verDerivaciones')"><span class="dm-ico">📊</span> Ver Derivaciones</div>
+        <div class="dm-item" onclick="run('agregarParticipanteManual')"><span class="dm-ico">➕</span><div class="dm-txt"><span class="dm-lbl">Agregar Participante</span><span class="dm-sub">Registrar nuevo participante manualmente</span></div></div>
+        <div class="dm-item" onclick="run('editarParticipante')"><span class="dm-ico">✏️</span><div class="dm-txt"><span class="dm-lbl">Editar Datos</span><span class="dm-sub">Modificar información del participante seleccionado</span></div></div>
+        <div class="dm-item" onclick="run('abrirFormDerivacion')"><span class="dm-ico">➡️</span><div class="dm-txt"><span class="dm-lbl">Derivar a Otro Programa</span><span class="dm-sub">Enviar participante a otro servicio o institución</span></div></div>
+        <div class="dm-item" onclick="run('verDerivaciones')"><span class="dm-ico">📊</span><div class="dm-txt"><span class="dm-lbl">Ver Historial de Derivaciones</span><span class="dm-sub">Revisar todos los casos derivados</span></div></div>
       </div>
     </div>
-    <button class="btn-acc ghost" onclick="recargar()">🔄 Recargar</button>
+    <button class="btn-acc ghost" onclick="recargar()">🔄 Actualizar Lista</button>
   </div>
 
   <!-- BÚSQUEDA -->
@@ -2488,7 +2492,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 
 <!-- ════ VISTA PERFIL ════ -->
 <div id="vistaPerfil">
-  <div class="back" onclick="volverLista()">← Volver a la lista</div>
+  <div class="back" onclick="volverLista()">← Volver al listado de participantes</div>
   <div class="perfil-scroll" id="perfilContenido"></div>
 </div>
 
@@ -2584,10 +2588,10 @@ function renderPerfil(p){
   var tel=(p.telefono||'').replace(/\D/g,'');
   if(tel.length===8) tel='502'+tel;
   var waMsg=encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala. ¿Cómo estás? Nos gustaría ponernos en contacto contigo.');
-  var actDropdown='<div class="dropdown" id="perfil-dd" style="margin:8px 14px"><button class="btn-acc primary" onclick="togglePDD(event)">⚡ Acciones ▾</button><div class="dropdown-menu" id="perfil-ddMenu">';
-  if(tel) actDropdown+='<div class="dm-item" onclick="abrirWhatsApp(\''+tel+'\',\''+waMsg+'\')"><span class="dm-ico">💬</span> Enviar WhatsApp</div>';
-  actDropdown+='<div class="dm-item" onclick="abrirSesion(\''+esc(p.id)+'\',\''+esc(p.nombre)+'\')"><span class="dm-ico">📋</span> Registrar Sesión</div>';
-  if(p.docUrl) actDropdown+='<div class="dm-item" onclick="abrirExpediente(\''+p.docUrl+'\')"><span class="dm-ico">📄</span> Abrir Expediente</div>';
+  var actDropdown='<div class="dropdown" id="perfil-dd" style="margin:8px 14px"><button class="btn-acc primary" onclick="togglePDD(event)">⚡ Acciones con Participante ▾</button><div class="dropdown-menu" id="perfil-ddMenu">';
+  if(tel) actDropdown+='<div class="dm-item" onclick="abrirWhatsApp(\''+tel+'\',\''+waMsg+'\')"><span class="dm-ico">💬</span><div class="dm-txt"><span class="dm-lbl">Enviar WhatsApp</span><span class="dm-sub">Abrir chat directo con el participante</span></div></div>';
+  actDropdown+='<div class="dm-item" onclick="abrirSesion(\''+esc(p.id)+'\',\''+esc(p.nombre)+'\')"><span class="dm-ico">📋</span><div class="dm-txt"><span class="dm-lbl">Registrar Nueva Sesión</span><span class="dm-sub">Anotar sesión de acompañamiento o mentoría</span></div></div>';
+  if(p.docUrl) actDropdown+='<div class="dm-item" onclick="abrirExpediente(\''+p.docUrl+'\')"><span class="dm-ico">📄</span><div class="dm-txt"><span class="dm-lbl">Ver Expediente Completo</span><span class="dm-sub">Abrir carpeta del participante en Drive</span></div></div>';
   actDropdown+='</div></div>';
   var f=function(l,v){return '<div class="frow"><span class="fl">'+l+'</span><span class="fv">'+esc(v||'—')+'</span></div>';};
   var html='<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
