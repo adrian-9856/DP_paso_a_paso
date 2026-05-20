@@ -153,7 +153,9 @@ function onOpen() {
         .addItem('📋 Calidad de Datos',        'analizarCalidadDatos')
         .addItem('📝 Reporte Mensual',         'generarReporteMensual')
         .addSeparator()
-        .addItem('⚡ Exportar para Power BI',  'exportarParaPowerBI')
+        .addItem('⚡ Exportar para Power BI',        'exportarParaPowerBI')
+        .addItem('⏰ Configurar Auto-actualización',  'configurarAutoActualizacion')
+        .addItem('🔴 Desactivar Auto-actualización',  'desactivarAutoActualizacion')
       )
       // ── Herramientas Kobo ──
       .addSubMenu(ui.createMenu('🔬 Herramientas Kobo')
@@ -1524,6 +1526,278 @@ function exportarParaPowerBI() {
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
     logError('exportarParaPowerBI', e);
+  }
+}
+
+// ============================================================================
+// AUTO-ACTUALIZACIÓN POWER BI — Triggers automáticos
+// ============================================================================
+
+// Nombre interno del trigger (para identificarlo y borrarlo)
+const TRIGGER_PBI_FN = 'triggerSilenciosoExportPBI';
+const PROP_TRIGGER_FREQ = 'pbi_trigger_freq';
+
+/**
+ * Versión silenciosa de exportarParaPowerBI, ejecutada por el trigger.
+ * NO muestra alertas UI — solo actualiza las hojas PBI.
+ */
+function triggerSilenciosoExportPBI() {
+  try {
+    const ss      = SpreadsheetApp.getActive();
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro || maestro.getLastRow() < 2) return;
+
+    const M  = CONFIG.COL;
+    const tz = Session.getScriptTimeZone();
+    const ahora = new Date();
+
+    // ── PBI_Participantes ──
+    let pbiP = ss.getSheetByName('PBI_Participantes');
+    if (!pbiP) pbiP = ss.insertSheet('PBI_Participantes');
+    else pbiP.clear();
+
+    const hP = ['ID','Fecha','Nombre','DPI','Edad','Genero','Telefono','Zona','Email',
+                'Educacion','Situacion_Laboral','Fortalezas','Objetivo',
+                'Perfil','Prioridad','Puntaje',
+                'Dim_Educativo','Dim_Laboral','Dim_Digital','Dim_Vocacional','Dim_Barreras','Dim_Red_Apoyo',
+                'Estado','FechaActualizacion'];
+    pbiP.getRange(1,1,1,hP.length).setValues([hP])
+      .setFontWeight('bold').setBackground('#1a237e').setFontColor('#fff');
+
+    const datos = maestro.getRange(2,1,maestro.getLastRow()-1,26).getValues().filter(r => r[M.ID-1]);
+    if (datos.length) {
+      const filas = datos.map(r => [
+        r[M.ID-1], r[M.FECHA-1], r[M.NOMBRE-1], r[M.DPI-1],
+        Number(r[M.EDAD-1])||'', r[M.GENERO-1], r[M.TELEFONO-1], r[M.ZONA-1], r[M.EMAIL-1],
+        r[M.EDUCACION-1], r[M.LABORAL-1], r[M.FORTALEZAS-1], r[M.OBJETIVO-1],
+        normalizarPerfil(r[M.PERFIL-1]), normalizarPrioridad(r[M.PRIORIDAD-1]),
+        Number(r[M.PUNTAJE-1])||0,
+        Number(r[M.DIM1-1])||0, Number(r[M.DIM2-1])||0, Number(r[M.DIM3-1])||0,
+        Number(r[M.DIM4-1])||0, Number(r[M.DIM5-1])||0, Number(r[M.DIM6-1])||0,
+        r[M.ESTADO-1], ahora
+      ]);
+      pbiP.getRange(2,1,filas.length,hP.length).setValues(filas);
+    }
+    pbiP.setFrozenRows(1);
+
+    // ── PBI_Indicadores ──
+    let pbiI = ss.getSheetByName('PBI_Indicadores');
+    if (!pbiI) pbiI = ss.insertSheet('PBI_Indicadores');
+    else pbiI.clear();
+
+    const hI = ['Codigo','Indicador','Valor_Texto','Valor_Num','Criterio','Periodo','Fecha_Actualizacion'];
+    pbiI.getRange(1,1,1,hI.length).setValues([hI])
+      .setFontWeight('bold').setBackground('#1a237e').setFontColor('#fff');
+
+    const perfiles  = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0};
+    const estados   = {};
+    const generos   = {};
+    const puntajes  = [];
+    let enAcomp = 0, conexiones = 0, ingMes = 0;
+    const mesAct = ahora.getMonth(), anioAct = ahora.getFullYear();
+
+    datos.forEach(r => {
+      const p = normalizarPerfil(r[M.PERFIL-1]);
+      if (perfiles[p] !== undefined) perfiles[p]++;
+      const e = r[M.ESTADO-1]||'Sin estado';
+      estados[e] = (estados[e]||0)+1;
+      const gen = String(r[M.GENERO-1]||'Sin dato');
+      generos[gen] = (generos[gen]||0)+1;
+      if (['Mentoría','Orientación'].includes(e)) enAcomp++;
+      if (['Cierre','Completado'].includes(e)) conexiones++;
+      const pt = Number(r[M.PUNTAJE-1]);
+      if (pt > 0) puntajes.push(pt);
+      const f = r[M.FECHA-1];
+      if (f instanceof Date && f.getMonth()===mesAct && f.getFullYear()===anioAct) ingMes++;
+    });
+
+    const total   = datos.length;
+    const promPt  = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
+    const periodo = Utilities.formatDate(ahora, tz, 'MMMM yyyy');
+    const tasaGrad = total > 0 ? Math.round(conexiones/total*100) : 0;
+
+    const kpiRows = [
+      ['IL.P.01', 'Número de participantes en el programa IL',            total,         total,     'Pertinencia',   periodo, ahora],
+      ['IL.P.02', 'Participantes en acompañamiento profesional',           enAcomp,       enAcomp,   'Pertinencia',   periodo, ahora],
+      ['IL.P.04', 'Personas registradas este mes',                         ingMes,        ingMes,    'Pertinencia',   periodo, ahora],
+      ['IL.R.07', 'Conexiones laborales (Cierre/Completado)',              conexiones,    conexiones, 'Eficacia',     periodo, ahora],
+      ['IL.R.05', 'Tasa de graduación % (sobre total)',                    tasaGrad+'%',  tasaGrad,   'Eficacia',     periodo, ahora],
+      ['IL.P.01_A','Perfil A — Listos para empleo',                        perfiles['Perfil A'], perfiles['Perfil A'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_B','Perfil B — Orientación vocacional',                    perfiles['Perfil B'], perfiles['Perfil B'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_C','Perfil C — Desarrollo de capacidades',                 perfiles['Perfil C'], perfiles['Perfil C'], 'Desagregación', periodo, ahora],
+      ['IL.P.01_D','Perfil D — Barreras críticas',                         perfiles['Perfil D'], perfiles['Perfil D'], 'Desagregación', periodo, ahora],
+      ['DIAG.PROM','Puntaje promedio diagnóstico (sobre 60)',               promPt+'/60',  promPt,     'Diagnóstico',  periodo, ahora],
+    ];
+    Object.entries(estados).forEach(([est,cnt]) =>
+      kpiRows.push(['ESTADO_'+est.toUpperCase().replace(/\s/g,'_'), 'Estado: '+est, cnt, cnt, 'Estado', periodo, ahora]));
+    Object.entries(generos).forEach(([gen,cnt]) =>
+      kpiRows.push(['GENERO_'+gen.toUpperCase().replace(/\s/g,'_'), 'Género: '+gen, cnt, cnt, 'Género', periodo, ahora]));
+
+    pbiI.getRange(2,1,kpiRows.length,hI.length).setValues(kpiRows);
+    pbiI.setFrozenRows(1);
+
+    // Registrar timestamp en PropertiesService
+    PropertiesService.getScriptProperties().setProperty('pbi_last_update', ahora.toISOString());
+
+    Logger.log('✅ PBI actualizado: ' + ahora.toLocaleString());
+  } catch(e) {
+    logError('triggerSilenciosoExportPBI', e);
+  }
+}
+
+/**
+ * Muestra diálogo para configurar la frecuencia de auto-actualización.
+ */
+function configurarAutoActualizacion() {
+  const props    = PropertiesService.getScriptProperties();
+  const freqActual = props.getProperty(PROP_TRIGGER_FREQ) || 'ninguna';
+  const ultimaAct  = props.getProperty('pbi_last_update');
+  const ultimaTxt  = ultimaAct
+    ? Utilities.formatDate(new Date(ultimaAct), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+    : 'Nunca';
+
+  const triggerActivo = ScriptApp.getProjectTriggers()
+    .some(t => t.getHandlerFunction() === TRIGGER_PBI_FN);
+
+  const html = HtmlService.createHtmlOutput(`
+    <!DOCTYPE html><html><head>
+    <style>
+      body{font-family:'Segoe UI',Arial;font-size:13px;margin:0;background:#f5f5f5}
+      .hdr{background:#1a237e;color:#fff;padding:16px 20px}
+      .hdr h2{margin:0;font-size:15px}
+      .hdr p{margin:5px 0 0;font-size:10px;opacity:.8}
+      .body{padding:20px}
+      .status{background:${triggerActivo?'#e8f5e9':'#fff3e0'};
+              border-left:4px solid ${triggerActivo?'#43a047':'#fb8c00'};
+              padding:10px 14px;border-radius:4px;margin-bottom:18px;font-size:12px}
+      .status strong{color:${triggerActivo?'#2e7d32':'#e65100'}}
+      .opt{background:#fff;border:2px solid #e0e0e0;border-radius:8px;padding:14px;
+           margin-bottom:10px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:12px}
+      .opt:hover{border-color:#1a237e;background:#f0f2ff}
+      .opt.sel{border-color:#1a237e;background:#e8eaf6}
+      .opt-ico{font-size:22px;flex-shrink:0}
+      .opt-txt strong{display:block;font-size:13px;color:#1a237e}
+      .opt-txt span{font-size:11px;color:#777}
+      .btn{width:100%;padding:12px;background:#1a237e;color:#fff;border:none;
+           border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:14px}
+      .btn:hover{background:#283593}
+      .btn.danger{background:#c62828;margin-top:8px}
+      .btn.danger:hover{background:#b71c1c}
+      .note{font-size:10px;color:#999;margin-top:10px;text-align:center;line-height:1.5}
+    </style></head><body>
+    <div class="hdr">
+      <h2>⏰ Auto-actualización Power BI</h2>
+      <p>Las hojas PBI_Participantes y PBI_Indicadores se actualizarán automáticamente</p>
+    </div>
+    <div class="body">
+      <div class="status">
+        Estado: <strong>${triggerActivo ? '✅ ACTIVO — cada '+freqActual : '🔴 INACTIVO'}</strong><br>
+        Última actualización: <strong>${ultimaTxt}</strong>
+      </div>
+
+      <p style="margin:0 0 12px;font-weight:bold;color:#333">Selecciona la frecuencia:</p>
+
+      <div class="opt ${freqActual==='hora'?'sel':''}" onclick="sel(this,'hora')">
+        <span class="opt-ico">🕐</span>
+        <div class="opt-txt"><strong>Cada hora</strong><span>Máxima frescura de datos. Ideal si el equipo registra actividad durante el día.</span></div>
+      </div>
+      <div class="opt ${freqActual==='6horas'?'sel':''}" onclick="sel(this,'6horas')">
+        <span class="opt-ico">🕕</span>
+        <div class="opt-txt"><strong>Cada 6 horas</strong><span>Balance entre frecuencia y cuota. Recomendado para la mayoría de casos.</span></div>
+      </div>
+      <div class="opt ${freqActual==='dia'?'sel':''}" onclick="sel(this,'dia')">
+        <span class="opt-ico">📅</span>
+        <div class="opt-txt"><strong>Una vez al día (medianoche)</strong><span>Ideal si Power BI se revisa cada mañana con datos del día anterior.</span></div>
+      </div>
+      <div class="opt ${freqActual==='semana'?'sel':''}" onclick="sel(this,'semana')">
+        <span class="opt-ico">📆</span>
+        <div class="opt-txt"><strong>Cada semana (lunes)</strong><span>Para reportes semanales. Usa menos cuota de ejecución.</span></div>
+      </div>
+
+      <button class="btn" onclick="guardar()">✅ Activar Auto-actualización</button>
+      <button class="btn danger" onclick="desactivar()">🔴 Desactivar</button>
+      <div class="note">Funciona 24/7 aunque el archivo esté cerrado.<br>Puedes ver ejecuciones en Apps Script → Ejecuciones.</div>
+    </div>
+    <script>
+      var freq = '${freqActual==='ninguna'?'dia':freqActual}';
+      function sel(el,f){
+        document.querySelectorAll('.opt').forEach(o=>o.classList.remove('sel'));
+        el.classList.add('sel'); freq=f;
+      }
+      function guardar(){
+        google.script.run.withSuccessHandler(function(msg){alert(msg);google.script.host.close();})
+          .activarTriggerPBI(freq);
+      }
+      function desactivar(){
+        google.script.run.withSuccessHandler(function(msg){alert(msg);google.script.host.close();})
+          .desactivarAutoActualizacion();
+      }
+    </script>
+    </body></html>
+  `).setWidth(480).setHeight(560);
+
+  SpreadsheetApp.getUi().showModalDialog(html, '⏰ Configurar Auto-actualización Power BI');
+}
+
+/**
+ * Crea el trigger con la frecuencia seleccionada.
+ * @param {string} freq 'hora' | '6horas' | 'dia' | 'semana'
+ */
+function activarTriggerPBI(freq) {
+  try {
+    // Borrar triggers anteriores del mismo handler
+    ScriptApp.getProjectTriggers()
+      .filter(t => t.getHandlerFunction() === TRIGGER_PBI_FN)
+      .forEach(t => ScriptApp.deleteTrigger(t));
+
+    let builder = ScriptApp.newTrigger(TRIGGER_PBI_FN).timeBased();
+
+    switch(freq) {
+      case 'hora':
+        builder.everyHours(1); break;
+      case '6horas':
+        builder.everyHours(6); break;
+      case 'dia':
+        builder.everyDays(1).atHour(0); break;
+      case 'semana':
+        builder.everyWeeks(1).onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6); break;
+      default:
+        builder.everyHours(6);
+    }
+
+    builder.create();
+
+    PropertiesService.getScriptProperties().setProperty(PROP_TRIGGER_FREQ, freq);
+
+    // Ejecutar inmediatamente la primera vez
+    triggerSilenciosoExportPBI();
+
+    const label = {hora:'cada hora', '6horas':'cada 6 horas', dia:'diariamente a medianoche', semana:'cada lunes a las 6am'}[freq] || freq;
+    return '✅ Auto-actualización activada: '+label+'\n\nLas hojas PBI_Participantes y PBI_Indicadores ya fueron actualizadas ahora mismo y seguirán actualizándose automáticamente.';
+  } catch(e) {
+    logError('activarTriggerPBI', e);
+    return '❌ Error: ' + e.message;
+  }
+}
+
+/**
+ * Elimina el trigger de auto-actualización.
+ */
+function desactivarAutoActualizacion() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers()
+      .filter(t => t.getHandlerFunction() === TRIGGER_PBI_FN);
+
+    if (!triggers.length) {
+      return '⚠️ No había ningún trigger activo.';
+    }
+
+    triggers.forEach(t => ScriptApp.deleteTrigger(t));
+    PropertiesService.getScriptProperties().setProperty(PROP_TRIGGER_FREQ, 'ninguna');
+    SpreadsheetApp.getUi().alert('🔴 Auto-actualización desactivada.\n\nPuedes volver a activarla desde ⏰ Configurar Auto-actualización.');
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('desactivarAutoActualizacion', e);
   }
 }
 
