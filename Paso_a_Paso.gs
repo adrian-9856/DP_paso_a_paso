@@ -2183,11 +2183,122 @@ function actualizarAnalytics(ss) {
 function verFicha() {
   try {
     const datos = obtenerParticipantes();
-    const html = HtmlService.createHtmlOutput(
-      FICHA_HTML.replace('/*__DATOS__*/', 'todos=' + JSON.stringify(datos) + ';')
-    ).setWidth(900).setHeight(750);
-    SpreadsheetApp.getUi().showModalDialog(html, '👤 Participantes');
-  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error al abrir: ' + e.message); }
+    SpreadsheetApp.getUi().showModalDialog(
+      HtmlService.createHtmlOutput(construirFichaHtml(datos)).setWidth(900).setHeight(720),
+      '👤 Participantes — Paso a Paso'
+    );
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e.message); }
+}
+
+function construirFichaHtml(datos) {
+  const PERFIL_COLOR = {
+    'Perfil A': { bg:'#274e13', fg:'#d9ead3' },
+    'Perfil B': { bg:'#1c4587', fg:'#cfe2f3' },
+    'Perfil C': { bg:'#7f6000', fg:'#fff2cc' },
+    'Perfil D': { bg:'#660000', fg:'#f4cccc' }
+  };
+
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function ini(n){ return String(n||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase(); }
+  function tel502(t){ const s=String(t||'').replace(/\D/g,''); return s.length===8?'502'+s:s; }
+
+  const filas = datos.map(p => {
+    const c = PERFIL_COLOR[p.perfil] || { bg:'#555', fg:'#f0f0f0' };
+    const tel = tel502(p.telefono);
+    const waMsg = encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala.');
+    const waBtn = tel
+      ? '<a href="https://wa.me/'+tel+'?text='+waMsg+'" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#25d366;color:#fff;text-decoration:none;font-size:13px">💬</a>'
+      : '';
+    const docBtn = p.docUrl
+      ? '<a href="'+p.docUrl+'" target="_blank" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#e8eaf6;color:#1a237e;text-decoration:none;font-size:13px;margin-left:3px">📄</a>'
+      : '';
+    const urgente = p.prioridad === 'CRÍTICO'
+      ? '<span style="background:#c62828;color:#fff;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:700;margin-left:3px">URGENTE</span>' : '';
+    return `<tr class="fila" data-buscar="${esc(p.nombre+' '+p.id+' '+(p.zona||'')).toLowerCase()}">
+      <td style="padding:8px 10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:32px;height:32px;border-radius:50%;background:${c.bg};color:${c.fg};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${ini(p.nombre)}</div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#1a237e">${esc(p.nombre)}</div>
+            <div style="font-size:9px;color:#9e9e9e">Creamos ID: ${esc(p.id)}</div>
+          </div>
+        </div>
+      </td>
+      <td style="padding:8px 6px;vertical-align:middle">
+        <span style="background:${c.fg};color:${c.bg};padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700">${esc(p.perfil||'—')}</span>${urgente}
+      </td>
+      <td style="padding:8px 6px;vertical-align:middle">
+        <span style="background:#e8eaf6;color:#3949ab;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700">${esc(p.estado||'—')}</span>
+      </td>
+      <td style="padding:8px 6px;vertical-align:middle;font-size:11px;color:#555">${esc(p.telefono||'—')}</td>
+      <td style="padding:8px 6px;vertical-align:middle;font-size:11px;color:#555">${esc(p.zona||'—')}</td>
+      <td style="padding:8px 6px;vertical-align:middle;text-align:center">${waBtn}${docBtn}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.tb{background:#1a237e;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.tb h2{font-size:13px;font-weight:700;flex:1}
+.badge{font-size:10px;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:10px}
+.bar{padding:7px 12px;background:#fff;border-bottom:1px solid #e8eaf6;display:flex;gap:6px;align-items:center;flex-shrink:0}
+.srch{padding:7px 12px;background:#fff;border-bottom:1px solid #e8eaf6;flex-shrink:0}
+.srch input{width:100%;padding:7px 12px;border:1px solid #c5cae9;border-radius:20px;font-size:12px;outline:none}
+.srch input:focus{border-color:#1a237e}
+.filtros{padding:5px 12px;background:#fff;border-bottom:1px solid #e8eaf6;display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}
+.flt{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1.5px solid #c5cae9;background:#fff;cursor:pointer;color:#555}
+.flt.on{background:#1a237e;color:#fff;border-color:#1a237e}
+.tabla-wrap{overflow-y:auto;flex:1}
+table{width:100%;border-collapse:collapse;background:#fff}
+thead th{padding:7px 10px;background:#e8eaf6;color:#1a237e;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;z-index:1;border-bottom:2px solid #c5cae9;text-align:left}
+.fila:hover{background:#f0f2ff}
+.fila.oculta{display:none}
+.empty{padding:40px;text-align:center;color:#9e9e9e;font-size:12px}
+</style></head><body>
+<div class="tb"><h2>👤 Participantes</h2><span class="badge" id="cnt">${datos.length} participantes</span></div>
+<div class="bar">
+  <span style="font-size:11px;color:#666">Total cargados: <strong>${datos.length}</strong></span>
+</div>
+<div class="srch"><input id="q" placeholder="🔍 Buscar por nombre, Creamos ID, zona…" oninput="buscar(this.value)"></div>
+<div class="filtros" id="filtros">
+  <button class="flt on" onclick="filtrar(this,'')">Todos</button>
+  <button class="flt" onclick="filtrar(this,'Perfil A')" style="color:#274e13;border-color:#a8d5a2">A</button>
+  <button class="flt" onclick="filtrar(this,'Perfil B')" style="color:#1c4587;border-color:#9bbfe0">B</button>
+  <button class="flt" onclick="filtrar(this,'Perfil C')" style="color:#7f6000;border-color:#f0d060">C</button>
+  <button class="flt" onclick="filtrar(this,'Perfil D')" style="color:#660000;border-color:#e08080">D</button>
+  <button class="flt" onclick="filtrar(this,'Orientación')">Orient.</button>
+  <button class="flt" onclick="filtrar(this,'Mentoría')">Ment.</button>
+  <button class="flt" onclick="filtrar(this,'Formación')">Form.</button>
+  <button class="flt" onclick="filtrar(this,'Inactivo')">Inact.</button>
+</div>
+<div class="tabla-wrap">
+  ${datos.length === 0 ? '<div class="empty">📭 No hay participantes en la hoja Maestro</div>' :
+  `<table><thead><tr>
+    <th>Participante</th><th>Perfil</th><th>Estado</th><th>Teléfono</th><th>Zona</th><th>Acciones</th>
+  </tr></thead><tbody id="tbody">${filas}</tbody></table>`}
+</div>
+<script>
+var filtroActual='';
+function buscar(q){
+  var filas=document.querySelectorAll('.fila');
+  var v=0;
+  filas.forEach(function(f){
+    var b=f.dataset.buscar||'';
+    var ok=(!q||b.includes(q.toLowerCase()))&&(!filtroActual||b.includes(filtroActual.toLowerCase()));
+    f.classList.toggle('oculta',!ok);
+    if(ok)v++;
+  });
+  document.getElementById('cnt').textContent=v+' / ${datos.length}';
+}
+function filtrar(btn,val){
+  filtroActual=val;
+  document.querySelectorAll('.flt').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on');
+  buscar(document.getElementById('q').value);
+}
+<\/script></body></html>`;
 }
 
 // Lee SOLO el Maestro (sin caché para máxima confiabilidad)
