@@ -122,23 +122,27 @@ function validarTransicionEstado(ant, nuevo) {
 // ============================================================================
 
 function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('🚀 Paso a Paso')
-    .addItem('📋 Ver Participantes',           'verFicha')
-    .addSeparator()
-    .addItem('🔄 Sincronizar Todo',            'sincronizarTodo')
-    .addSeparator()
-    .addItem('📊 Abrir Dashboard',             'abrirDashboard')
-    .addSeparator()
-    .addSubMenu(ui.createMenu('🛠️ Sistema')
-      .addItem('📥 Reinstalar / Reparar Todo', 'reinstalarCompleto')
-      .addItem('⚙️ Configuración',             'abrirConfiguracion')
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('🚀 Paso a Paso')
+      // ── Acceso principal ──────────────────────────────────────────────
+      .addItem('📋 Ver Participantes',               'verFicha')
       .addSeparator()
-      .addItem('🔬 Diagnosticar Kobo',         'diagnosticoCamposKobo')
-      .addItem('🧪 Probar Conexión Kobo',      'probarKobo')
+      // ── Datos ─────────────────────────────────────────────────────────
+      .addItem('🔄 Importar Todo',                   'sincronizarTodo')
+      .addItem('📊 Actualizar Power BI',              'exportarParaPowerBI')
       .addSeparator()
-      .addItem('🗑️ Desinstalar & Limpiar',     'desinstalarYLimpiar'))
-    .addToUi();
+      // ── Automatización ────────────────────────────────────────────────
+      .addItem('⏰ Activar Auto-actualización',       'configurarAutoActualizacion')
+      .addSeparator()
+      // ── Configuración & Setup ─────────────────────────────────────────
+      .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
+      .addItem('⚙️ Configuración',                   'abrirConfiguracion')
+      .addSeparator()
+      // ── Zona de peligro ───────────────────────────────────────────────
+      .addItem('🗑️ Desinstalar & Limpiar',           'desinstalarYLimpiar')
+      .addToUi();
+  } catch(e) { /* contexto sin UI (trigger automático) — ignorar */ }
 }
 
 // ============================================================================
