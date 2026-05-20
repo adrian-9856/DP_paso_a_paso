@@ -2214,7 +2214,7 @@ function construirFichaHtml(datos) {
       : '';
     const urgente = p.prioridad === 'CRÍTICO'
       ? '<span style="background:#c62828;color:#fff;padding:1px 5px;border-radius:6px;font-size:9px;font-weight:700;margin-left:3px">URGENTE</span>' : '';
-    return `<tr class="fila" data-buscar="${esc(p.nombre+' '+p.id+' '+(p.zona||'')).toLowerCase()}">
+    return `<tr class="fila" style="cursor:pointer" onclick="abrirPerfil(this)" data-perfil='${JSON.stringify(p).replace(/'/g,"&apos;")}' data-buscar="${esc(p.nombre+' '+p.id+' '+(p.zona||'')).toLowerCase()}">
       <td style="padding:8px 10px">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="width:32px;height:32px;border-radius:50%;background:${c.bg};color:${c.fg};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${ini(p.nombre)}</div>
@@ -2298,7 +2298,72 @@ function filtrar(btn,val){
   btn.classList.add('on');
   buscar(document.getElementById('q').value);
 }
-<\/script></body></html>`;
+function abrirPerfil(row) {
+  const p = JSON.parse(row.dataset.perfil);
+  const modal = document.getElementById('perfilModal');
+  const contenido = document.getElementById('perfilContenido');
+  const dims = p.dims || [0,0,0,0,0,0];
+  const dimLabels = ['Educativo', 'Laboral', 'Digital', 'Vocacional', 'Barreras', 'Red Apoyo'];
+  let html = '<div style="padding:16px;max-height:600px;overflow-y:auto;"><div style="text-align:center;margin-bottom:16px;"><div style="width:60px;height:60px;border-radius:50%;background:#1a237e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 8px;">' + p.nombre.split(' ')[0][0] + '</div><div style="font-size:16px;font-weight:700;color:#1a237e;">' + p.nombre + '</div><div style="font-size:12px;color:#666;">Creamos ID: ' + p.id + '</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-size:11px;"><div><span style="color:#666;">DPI:</span> <strong>' + (p.dpi || '—') + '</strong></div><div><span style="color:#666;">Edad:</span> <strong>' + (p.edad || '—') + '</strong></div><div><span style="color:#666;">Género:</span> <strong>' + (p.genero || '—') + '</strong></div><div><span style="color:#666;">Zona:</span> <strong>' + (p.zona || '—') + '</strong></div><div style="grid-column:1/-1;"><span style="color:#666;">Email:</span> <strong>' + (p.email || '—') + '</strong></div><div style="grid-column:1/-1;"><span style="color:#666;">Teléfono:</span> <strong>' + (p.telefono || '—') + '</strong></div></div><div style="margin-bottom:16px;border-top:1px solid #e8eaf6;padding-top:12px;"><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Educación:</strong> ' + (p.educacion || '—') + '</div><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Laboral:</strong> ' + (p.laboral || '—') + '</div><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Fortalezas:</strong> ' + (p.fortalezas || '—') + '</div><div style="font-size:11px;color:#666;"><strong>Objetivo:</strong> ' + (p.objetivo || '—') + '</div></div><canvas id="radarChart" style="max-width:100%;margin:16px 0;"></canvas><div style="display:flex;gap:8px;margin-top:16px;"><button onclick="cerrarPerfil()" style="flex:1;padding:8px 12px;background:#e8eaf6;color:#1a237e;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:11px;">Cerrar</button></div></div>';
+  contenido.innerHTML = html;
+  modal.style.display = 'flex';
+  setTimeout(() => { dibujarRadar(p); }, 100);
+}
+function cerrarPerfil() {
+  document.getElementById('perfilModal').style.display = 'none';
+}
+function dibujarRadar(p) {
+  const dims = p.dims || [0,0,0,0,0,0];
+  const dimLabels = ['Educativo', 'Laboral', 'Digital', 'Vocacional', 'Barreras', 'Red Apoyo'];
+  if (typeof Chart === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js';
+    script.onload = () => { hacerRadar(p, dims, dimLabels); };
+    document.head.appendChild(script);
+  } else {
+    hacerRadar(p, dims, dimLabels);
+  }
+}
+function hacerRadar(p, dims, dimLabels) {
+  const canvas = document.getElementById('radarChart');
+  if (!canvas) return;
+  if (canvas.radarChart) canvas.radarChart.destroy();
+  const ctx = canvas.getContext('2d');
+  canvas.radarChart = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: dimLabels,
+      datasets: [{
+        label: p.nombre,
+        data: dims,
+        borderColor: '#1a237e',
+        backgroundColor: 'rgba(26, 35, 126, 0.2)',
+        borderWidth: 2,
+        fill: true,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#1a237e',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: true, position: 'bottom' } },
+      scales: { r: { beginAtZero: true, max: 10, ticks: { stepSize: 2, font: { size: 10 } } } }
+    }
+  });
+}
+document.getElementById('perfilModal').addEventListener('click', function(e) { if (e.target === this) cerrarPerfil(); });
+<\/script>
+<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:8px;width:90%;max-width:400px;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+    <div style="padding:12px 16px;background:#1a237e;color:#fff;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;"><strong>Perfil del Participante</strong><button onclick="cerrarPerfil()" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;">&times;</button></div>
+    <div id="perfilContenido"></div>
+  </div>
+</div>
+</body></html>`;
 }
 
 // Lee SOLO el Maestro (sin caché para máxima confiabilidad)
@@ -2327,7 +2392,8 @@ function obtenerParticipantes() {
       laboral:    String(r[M.LABORAL-1]    || ''),
       fortalezas: String(r[M.FORTALEZAS-1] || ''),
       objetivo:   String(r[M.OBJETIVO-1]   || ''),
-      docUrl:     String(r[M.DOC_URL-1]    || '')
+      docUrl:     String(r[M.DOC_URL-1]    || ''),
+      dims:       [0,0,0,0,0,0]
     }));
 }
 
@@ -2706,6 +2772,20 @@ function cerrarDD(e){var dd=document.getElementById('dd');if(dd&&!dd.contains(e.
 function run(fn){document.getElementById('ddm').classList.remove('open');google.script.run[fn]();}
 
 iniciar();
+<div id="perfilModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:#fff; border-radius:8px; width:90%; max-width:400px; box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+    <div style="padding:12px 16px; background:#1a237e; color:#fff; border-radius:8px 8px 0 0; display:flex; justify-content:space-between; align-items:center;">
+      <strong>Perfil del Participante</strong>
+      <button onclick="cerrarPerfil()" style="background:none; border:none; color:#fff; font-size:18px; cursor:pointer;">&times;</button>
+    </div>
+    <div id="perfilContenido"></div>
+  </div>
+</div>
+<script>
+document.getElementById('perfilModal').addEventListener('click', function(e) {
+  if (e.target === this) cerrarPerfil();
+});
+</script>
 </script></body></html>`;
 
 // ============================================================================
@@ -3765,7 +3845,8 @@ function abrirSesionDesdeHoja(pid, pnom) {
     'if(!f||!t){alert("Completa la fecha y tipo");return;}'+
     'google.script.run.withSuccessHandler(function(){google.script.host.close();})'+
     '.withFailureHandler(function(e){alert("Error: "+e.message);})'+
-    '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}<\/script>'+
+    '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}
+<\/script>'+
     '</body></html>'
   ).setWidth(320).setHeight(310).setTitle('📋 Registrar Sesión — '+pnom.split(' ')[0]);
   SpreadsheetApp.getUi().showModelessDialog(html, '📋 Registrar Sesión');
