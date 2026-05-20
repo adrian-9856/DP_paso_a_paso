@@ -2308,65 +2308,79 @@ function abrirPerfil(row) {
   const tel = (function(t){var s=String(t||'').replace(/\D/g,'');return s.length===8?'502'+s:s;})(p.telefono);
   const waUrl = tel ? 'https://wa.me/'+tel+'?text='+encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala.') : '';
 
-  function row2(label, val) {
-    return '<div style="padding:8px 0;border-bottom:1px solid #f0f2ff;"><span style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;">'+label+'</span><div style="font-size:12px;color:#212121;margin-top:2px;font-weight:500;">'+(val||'<span style="color:#bdbdbd;">—</span>')+'</div></div>';
+  function fila(label, val) {
+    return '<div style="padding:10px 0;display:flex;justify-content:space-between;border-bottom:1px solid #f5f5f5;"><span style="font-size:9px;font-weight:600;color:#9e9e9e;text-transform:uppercase;">'+label+'</span><span style="font-size:12px;color:#212121;font-weight:500;text-align:right;">'+(val||'<span style="color:#bdbdbd;">—</span>')+'</span></div>';
   }
-  function chip(label, clr) {
-    return '<span style="background:'+clr+';color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;margin-right:4px;">'+label+'</span>';
-  }
-
-  var puntajeColor = p.puntaje >= 70 ? '#2e7d32' : p.puntaje >= 40 ? '#f57f17' : '#c62828';
 
   var html =
-    '<div style="background:linear-gradient(135deg,#1a237e 0%,#283593 100%);padding:20px 20px 28px;color:#fff;border-radius:0;">' +
-      '<div style="display:flex;align-items:center;gap:14px;">' +
-        '<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0;">'+ini+'</div>' +
-        '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:15px;font-weight:700;line-height:1.2;word-break:break-word;">'+p.nombre+'</div>' +
-          '<div style="font-size:10px;opacity:.75;margin-top:3px;">Creamos ID: '+p.id+'</div>' +
-          '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' +
-            (p.perfil ? '<span style="background:'+c.fg+';color:'+c.bg+';padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">'+p.perfil+'</span>' : '') +
-            (p.estado ? '<span style="background:rgba(255,255,255,.2);padding:2px 9px;border-radius:10px;font-size:10px;">'+p.estado+'</span>' : '') +
-            (p.prioridad==='CRÍTICO' ? '<span style="background:#c62828;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">URGENTE</span>' : '') +
-          '</div>' +
+    '<div style="background:linear-gradient(135deg,#1a237e 0%,#283593 100%);padding:20px;color:#fff;margin:-14px -16px 0;margin-bottom:0;">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">' +
+        '<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0;">'+ini+'</div>' +
+        '<div style="flex:1;">' +
+          '<div style="font-size:14px;font-weight:700;line-height:1.2;">'+p.nombre+'</div>' +
+          '<div style="font-size:9px;opacity:.8;margin-top:2px;">Creamos ID: '+p.id+'</div>' +
         '</div>' +
-        (p.puntaje ? '<div style="text-align:center;background:rgba(255,255,255,.15);border-radius:8px;padding:8px 12px;flex-shrink:0;"><div style="font-size:20px;font-weight:800;">'+p.puntaje+'</div><div style="font-size:8px;opacity:.8;text-transform:uppercase;">Puntaje</div></div>' : '') +
+        (p.puntaje ? '<div style="text-align:center;background:rgba(255,255,255,.2);border-radius:8px;padding:6px 10px;flex-shrink:0;"><div style="font-size:18px;font-weight:800;">'+p.puntaje+'</div><div style="font-size:7px;opacity:.85;text-transform:uppercase;">Puntaje</div></div>' : '') +
+      '</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
+        (p.perfil ? '<span style="background:'+c.fg+';color:'+c.bg+';padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;">'+p.perfil+'</span>' : '') +
+        (p.estado ? '<span style="background:rgba(255,255,255,.2);padding:3px 9px;border-radius:10px;font-size:9px;">'+p.estado+'</span>' : '') +
+        (p.prioridad==='CRÍTICO' ? '<span style="background:#c62828;padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;">URGENTE</span>' : '') +
       '</div>' +
     '</div>' +
 
-    '<div style="padding:14px 16px;overflow-y:auto;max-height:420px;">' +
+    '<div style="padding:12px 16px;border-bottom:1px solid #e8eaf6;display:flex;gap:0;flex-shrink:0;">' +
+      '<button onclick="tabPerfil()" style="flex:1;padding:8px;background:transparent;border:none;border-bottom:2px solid #1a237e;color:#1a237e;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Perfil</button>' +
+      '<button onclick="tabDimensiones()" style="flex:1;padding:8px;background:transparent;border:none;border-bottom:2px solid transparent;color:#9e9e9e;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Dimensiones</button>' +
+    '</div>' +
 
-      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Datos Personales</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">' +
-        row2('DPI', p.dpi) +
-        row2('Edad', p.edad ? p.edad+' años' : '') +
-        row2('Género', p.genero) +
-        row2('Zona', p.zona) +
-      '</div>' +
-      row2('Teléfono', p.telefono) +
-      row2('Email', p.email) +
+    '<div id="tabPerfil" style="padding:14px 16px;overflow-y:auto;max-height:300px;">' +
+      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;margin-top:0;">📋 Datos Personales</div>' +
+      fila('DPI', p.dpi) +
+      fila('Edad', p.edad ? p.edad+' años' : '') +
+      fila('Género', p.genero) +
+      fila('Teléfono', p.telefono) +
+      fila('Zona', p.zona) +
+      fila('Email', p.email) +
+      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px;">📚 Perfil Socioeconómico</div>' +
+      fila('Educación', p.educacion) +
+      fila('Situación Laboral', p.laboral) +
+      fila('Fortalezas', p.fortalezas) +
+      fila('Objetivo', p.objetivo) +
+    '</div>' +
 
-      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 8px;">Perfil Socioeconómico</div>' +
-      row2('Educación', p.educacion) +
-      row2('Situación Laboral', p.laboral) +
-      row2('Fortalezas', p.fortalezas) +
-      row2('Objetivo', p.objetivo) +
+    '<div id="tabDimensiones" style="display:none;padding:14px 16px;overflow-y:auto;max-height:300px;text-align:center;">' +
+      '<canvas id="radarChart" height="220" width="300"></canvas>' +
+    '</div>' +
 
-      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px;">Dimensiones del Perfil</div>' +
-      '<div style="background:#f5f7ff;border-radius:8px;padding:8px;">' +
-        '<canvas id="radarChart" height="240"></canvas>' +
-      '</div>' +
-
-      '<div style="display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e8eaf6;">' +
-        (waUrl ? '<a href="'+waUrl+'" target="_blank" style="flex:1;padding:9px;background:#25d366;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:11px;text-align:center;text-decoration:none;display:block;">💬 WhatsApp</a>' : '') +
-        (p.docUrl ? '<a href="'+p.docUrl+'" target="_blank" style="flex:1;padding:9px;background:#e8eaf6;color:#1a237e;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:11px;text-align:center;text-decoration:none;display:block;">📄 Expediente</a>' : '') +
-        '<button onclick="cerrarPerfil()" style="flex:1;padding:9px;background:#f5f5f5;color:#555;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:11px;">Cerrar</button>' +
-      '</div>' +
+    '<div style="padding:10px 16px;border-top:1px solid #e8eaf6;background:#f9f9f9;display:flex;gap:6px;flex-shrink:0;">' +
+      (waUrl ? '<a href="'+waUrl+'" target="_blank" style="flex:1;padding:8px;background:#25d366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">💬<br>WhatsApp</a>' : '') +
+      (p.docUrl ? '<a href="'+p.docUrl+'" target="_blank" style="flex:1;padding:8px;background:#e8eaf6;color:#1a237e;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">📄<br>Expediente</a>' : '') +
+      '<button onclick="cerrarPerfil()" style="flex:1;padding:8px;background:#f5f5f5;color:#555;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:10px;line-height:1.3;">✕<br>Cerrar</button>' +
     '</div>';
 
   contenido.innerHTML = html;
+
+  // Agregar funciones de pestaña al window para que se puedan llamar
+  window.tabPerfil = function(){
+    document.getElementById('tabPerfil').style.display = 'block';
+    document.getElementById('tabDimensiones').style.display = 'none';
+    document.querySelectorAll('#perfilContenido button').forEach(function(btn,i){
+      if(i===0) { btn.style.borderBottomColor = '#1a237e'; btn.style.color = '#1a237e'; }
+      else if(i===1) { btn.style.borderBottomColor = 'transparent'; btn.style.color = '#9e9e9e'; }
+    });
+  };
+  window.tabDimensiones = function(){
+    document.getElementById('tabPerfil').style.display = 'none';
+    document.getElementById('tabDimensiones').style.display = 'block';
+    document.querySelectorAll('#perfilContenido button').forEach(function(btn,i){
+      if(i===0) { btn.style.borderBottomColor = 'transparent'; btn.style.color = '#9e9e9e'; }
+      else if(i===1) { btn.style.borderBottomColor = '#1a237e'; btn.style.color = '#1a237e'; }
+    });
+    setTimeout(function(){ dibujarRadar(p); }, 100);
+  };
+
   modal.style.display = 'flex';
-  setTimeout(function(){ dibujarRadar(p); }, 150);
 }
 function cerrarPerfil() {
   document.getElementById('perfilModal').style.display = 'none';
@@ -2385,11 +2399,11 @@ function dibujarRadar(p) {
 }
 function hacerRadar(p, dims, dimLabels) {
   const canvas = document.getElementById('radarChart');
-  if (!canvas) return;
-  if (canvas.radarChart) canvas.radarChart.destroy();
+  if (!canvas || !canvas.getContext) return;
+  if (window.radarChartInstance) window.radarChartInstance.destroy();
   const ctx = canvas.getContext('2d');
   const hayDatos = dims.some(function(d){ return d > 0; });
-  canvas.radarChart = new Chart(ctx, {
+  window.radarChartInstance = new Chart(ctx, {
     type: 'radar',
     data: {
       labels: dimLabels,
@@ -2397,49 +2411,53 @@ function hacerRadar(p, dims, dimLabels) {
         label: 'Dimensiones',
         data: hayDatos ? dims : [0,0,0,0,0,0],
         borderColor: '#3949ab',
-        backgroundColor: 'rgba(57, 73, 171, 0.15)',
-        borderWidth: 2.5,
+        backgroundColor: 'rgba(57, 73, 171, 0.12)',
+        borderWidth: 2,
         fill: true,
-        pointRadius: 4,
-        pointHoverRadius: 6,
+        pointRadius: 3.5,
+        pointHoverRadius: 5,
         pointBackgroundColor: '#3949ab',
         pointBorderColor: '#fff',
-        pointBorderWidth: 2
+        pointBorderWidth: 2,
+        tension: 0.1
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: false,
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: function(ctx){ return ' '+ctx.raw+' / 10'; } } }
+        tooltip: { backgroundColor: 'rgba(26,35,126,.9)', padding: 8, titleFont: { size: 10 }, bodyFont: { size: 9 }, callbacks: { label: function(ctx){ return ' '+ctx.raw+' / 10'; } } }
       },
       scales: {
         r: {
           beginAtZero: true,
           max: 10,
           min: 0,
-          ticks: { stepSize: 2, font: { size: 9 }, color: '#9e9e9e', backdropColor: 'transparent' },
-          grid: { color: 'rgba(0,0,0,.07)' },
+          ticks: { stepSize: 2, font: { size: 8 }, color: '#9e9e9e', backdropColor: 'transparent' },
+          grid: { color: 'rgba(0,0,0,.08)' },
           angleLines: { color: 'rgba(0,0,0,.1)' },
-          pointLabels: { font: { size: 10, weight: '600' }, color: '#3949ab' }
+          pointLabels: { font: { size: 9, weight: '600' }, color: '#3949ab', padding: 6 }
         }
       }
     }
   });
   if (!hayDatos) {
-    var msgEl = document.createElement('div');
-    msgEl.style = 'text-align:center;font-size:10px;color:#bdbdbd;margin-top:6px;';
-    msgEl.textContent = 'Sin datos de dimensiones aún';
-    canvas.parentNode.appendChild(msgEl);
+    var parent = canvas.parentNode;
+    var msgEl = parent.querySelector('.radar-msg');
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'radar-msg';
+      msgEl.style = 'text-align:center;font-size:9px;color:#bdbdbd;margin-top:8px;';
+      msgEl.textContent = 'Sin datos de dimensiones. Los datos se cargan desde el formulario Kobo.';
+      parent.appendChild(msgEl);
+    }
   }
 }
 document.getElementById('perfilModal').addEventListener('click', function(e) { if (e.target === this) cerrarPerfil(); });
 <\/script>
-<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:12px;">
-  <div style="background:#fff;border-radius:12px;width:100%;max-width:440px;max-height:92vh;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.28);display:flex;flex-direction:column;">
-    <div style="padding:10px 14px;background:#1a237e;color:#fff;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;"><span style="font-size:11px;font-weight:700;opacity:.8;letter-spacing:.5px;">PERFIL DEL PARTICIPANTE</span><button onclick="cerrarPerfil()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:24px;height:24px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">&times;</button></div>
-    <div id="perfilContenido" style="overflow-y:auto;flex:1;"></div>
+<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:420px;max-height:90vh;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.3);display:flex;flex-direction:column;">
+    <div id="perfilContenido" style="display:flex;flex-direction:column;overflow:hidden;flex:1;"></div>
   </div>
 </div>
 </body></html>`;
