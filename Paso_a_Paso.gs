@@ -130,6 +130,7 @@ function onOpen() {
       .addSeparator()
       // ── Datos ─────────────────────────────────────────────────────────
       .addItem('🔄 Importar Todo',                   'sincronizarTodo')
+      .addItem('📊 Actualizar Dashboard',             'abrirDashboard')
       .addItem('📊 Actualizar Power BI',              'exportarParaPowerBI')
       .addSeparator()
       // ── Automatización ────────────────────────────────────────────────
@@ -1285,9 +1286,11 @@ function crearHTMLDashboardGrafico(datos) {
 function abrirDashboard() {
   try {
     const ss = SpreadsheetApp.getActive();
+    SpreadsheetApp.getActiveSpreadsheet().toast('Actualizando Dashboard...', '📊', 3);
     actualizarDashboard(ss);
     ss.setActiveSheet(ss.getSheetByName('Dashboard'));
-  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+    SpreadsheetApp.getActiveSpreadsheet().toast('Dashboard actualizado ✅', '📊', 4);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error al actualizar Dashboard: ' + e); }
 }
 
 function actualizarDashboard(ss) {
