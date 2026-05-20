@@ -1447,7 +1447,7 @@ function actualizarAnalytics(ss) {
 function verFicha() {
   try {
     const html = HtmlService.createHtmlOutput(FICHA_HTML)
-      .setWidth(560).setHeight(680);
+      .setWidth(900).setHeight(750);
     SpreadsheetApp.getUi().showModalDialog(html, '👤 Participantes');
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
@@ -1582,6 +1582,77 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 .dim-bar .db{height:5px;background:#e8eaf6;border-radius:3px;overflow:hidden}
 .dim-bar .df{height:5px;border-radius:3px;background:var(--pc)}
 .docbtn{display:block;text-align:center;background:#1a237e;color:#fff;padding:9px;border-radius:6px;margin:10px 14px;text-decoration:none;font-size:12px;font-weight:700}
+/* ── RESPONSIVE ── */
+@media (max-width:1200px){
+  body{font-size:11px}
+  .topbar h2{font-size:12px}
+  .topbar span{font-size:9px}
+  .cn{font-size:11px}
+  .pnom{font-size:12px}
+  .frow{font-size:10px}
+  .sec{padding:7px 12px}
+  .fv{max-width:55%}
+}
+@media (max-width:768px){
+  body{font-size:10px}
+  .topbar{padding:8px 10px}
+  .topbar h2{font-size:11px}
+  .topbar span{font-size:8px;padding:1px 5px}
+  .acciones-bar{padding:5px 10px;gap:4px}
+  .btn-acc{padding:4px 10px;font-size:10px;gap:3px}
+  .buscar{padding:6px 10px}
+  .buscar input{padding:6px 10px;font-size:11px}
+  .filtros{padding:5px 10px;gap:3px}
+  .btn-filtro{padding:2px 7px;font-size:9px}
+  .card{padding:7px 10px;gap:8px}
+  .av{width:30px;height:30px;font-size:11px}
+  .cn{font-size:10px}
+  .pt{font-size:9px}
+  .back{padding:7px 10px;font-size:11px}
+  .phdr{padding:10px 12px;gap:10px}
+  .pav{width:40px;height:40px;font-size:13px}
+  .pnom{font-size:11px}
+  .prog{padding:6px 10px}
+  .sec{padding:6px 10px}
+  .sh{font-size:8px}
+  .frow{font-size:9px}
+  .fl{font-size:9px}
+  .fv{font-size:9px;max-width:50%}
+  .txt{font-size:10px}
+  .tag{padding:0px 6px;font-size:8px}
+  .dm-item{padding:7px 12px;font-size:11px}
+  .docbtn{padding:8px;font-size:11px;margin:8px 10px}
+}
+@media (max-width:480px){
+  body{font-size:9px}
+  .topbar{padding:6px 8px}
+  .topbar h2{font-size:10px}
+  .topbar span{font-size:7px;padding:0px 4px}
+  .acciones-bar{padding:4px 8px;gap:3px;flex-wrap:wrap}
+  .btn-acc{padding:3px 8px;font-size:9px}
+  .buscar{padding:5px 8px}
+  .buscar input{padding:5px 8px;font-size:10px}
+  .filtros{padding:4px 8px;gap:2px}
+  .btn-filtro{padding:1px 5px;font-size:8px}
+  .card{padding:6px 8px;gap:6px}
+  .av{width:28px;height:28px;font-size:10px}
+  .cn{font-size:9px}
+  .pt{font-size:8px}
+  .back{padding:6px 8px;font-size:10px}
+  .phdr{padding:8px 10px;gap:8px}
+  .pav{width:36px;height:36px;font-size:12px}
+  .pnom{font-size:10px}
+  .prog{padding:5px 8px}
+  .sec{padding:5px 8px}
+  .sh{font-size:7px}
+  .frow{font-size:8px;flex-direction:column;align-items:flex-start;padding:2px 0}
+  .fl{font-size:8px}
+  .fv{font-size:8px;max-width:100%;text-align:left;margin-top:2px}
+  .txt{font-size:9px}
+  .tag{padding:0px 4px;font-size:7px;margin-right:2px}
+  .dm-item{padding:6px 10px;font-size:10px;gap:6px}
+  .docbtn{padding:7px;font-size:10px;margin:7px 8px}
+}
 </style></head><body onclick="cerrarDropdown(event)">
 
 <!-- ════ VISTA LISTA ════ -->
@@ -1722,7 +1793,7 @@ function renderPerfil(p){
   var pct=Math.min(100,Math.round((p.puntaje/60)*100));
   var lbs=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
   var radarId='rd_'+Math.random().toString(36).substr(2,9);
-  var dimH='<div style="padding:10px;text-align:center"><canvas id="'+radarId+'"></canvas></div>';
+  var dimH='<div style="padding:10px;text-align:center;max-height:280px;display:flex;justify-content:center;align-items:center"><canvas id="'+radarId+'" style="max-width:100%;height:auto;width:100%"></canvas></div>';
   var docBtn=p.docUrl?'<a href="'+p.docUrl+'" target="_blank" class="docbtn">📄 Abrir Expediente en Drive</a>':'';
   var f=function(l,v){return '<div class="frow"><span class="fl">'+l+'</span><span class="fv">'+esc(v||'—')+'</span></div>';};
   var html='<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
