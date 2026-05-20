@@ -171,14 +171,14 @@ function actualizarHojaDerivados() {
     SpreadsheetApp.newDataValidation()
       .requireValueInList([
         'Enviar formulario Kobo',
-        'Reenviar recordatorio WhatsApp',
+        'Recordatorio de sesión agendada',
         'Ya completó el formulario'
       ], true)
       .setAllowInvalid(false)
       .build()
   );
 
-  SpreadsheetApp.getUi().alert('✅ Hoja Derivados actualizada.\n\nEl dropdown "Acción" ahora tiene las 3 opciones correctas:\n• Enviar formulario Kobo\n• Reenviar recordatorio WhatsApp\n• Ya completó el formulario');
+  SpreadsheetApp.getUi().alert('✅ Hoja Derivados actualizada.\n\nEl dropdown "Acción" ahora tiene las 3 opciones:\n• Enviar formulario Kobo\n• Recordatorio de sesión agendada\n• Ya completó el formulario');
 }
 
 function diagnostico() {
@@ -832,29 +832,35 @@ function manejarEdicion(e) {
         if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1).setValue('Formulario enviado');
 
       // ── OPCIÓN 2: Recordatorio por WhatsApp ────────────────────────────
-      } else if (valN.includes('Reenviar') || valN.includes('recordatorio')) {
+      } else if (valN.includes('Recordatorio') || valN.includes('sesión')) {
         if (!tel) {
           SpreadsheetApp.getUi().alert('⚠️ Sin teléfono\n\n' + nombre + ' no tiene número registrado.\nAbre el formulario con la opción "Enviar formulario Kobo" para compartirlo presencialmente.');
           return;
         }
         const msg = encodeURIComponent(
-          'Hola ' + nombre + ' 👋, te escribimos del equipo de *Paso a Paso - Creamos Guatemala*.\n\n' +
-          '📋 Te recordamos que aún tienes pendiente llenar tu formulario de inscripción:\n' +
-          KOBO_FORM + '\n\n' +
-          '¡Es rápido! Solo toma unos minutos. ¿Tienes alguna duda?'
+          'Hola ' + nombre + ' 👋\n\n' +
+          '📅 *Recordatorio de sesión agendada*\n\n' +
+          'Te escribimos del equipo de Paso a Paso - Creamos Guatemala. Queremos recordarte que tienes una sesión agendada con nosotros.\n\n' +
+          '✅ *Por favor, confirma tu asistencia*\n\n' +
+          'Si tienes alguna duda o necesitas cambiar la hora, no dudes en escribirnos.\n\n' +
+          '¡Nos vemos pronto!'
         );
         const html = HtmlService.createHtmlOutput(
           '<div style="font-family:\'Segoe UI\',sans-serif;padding:22px;text-align:center;">' +
-          '<div style="font-size:38px;margin-bottom:10px;">🔁</div>' +
-          '<p style="font-size:13px;color:#666;margin:0 0 4px;">Recordatorio para</p>' +
+          '<div style="font-size:38px;margin-bottom:10px;">📅</div>' +
+          '<p style="font-size:13px;color:#666;margin:0 0 4px;">Recordatorio de sesión para</p>' +
           '<p style="font-size:15px;font-weight:700;color:#1a237e;margin:0 0 6px;">' + nombre + '</p>' +
           '<p style="font-size:11px;color:#888;margin:0 0 18px;">📱 ' + telRaw + '</p>' +
-          '<p style="font-size:10px;color:#555;margin:0 0 16px;line-height:1.5;background:#fff3e0;padding:10px;border-radius:6px;text-align:left;">' +
-          '"Hola ' + nombre + ' 👋, te recordamos llenar el formulario de inscripción de Paso a Paso: ' + KOBO_FORM + '"</p>' +
-          '<a href="https://wa.me/' + tel + '?text=' + msg + '" target="_blank" style="display:block;padding:11px;background:#25d366;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;margin-bottom:8px;">💬 Enviar recordatorio por WhatsApp</a>' +
+          '<p style="font-size:10px;color:#555;margin:0 0 16px;line-height:1.6;background:#e3f2fd;padding:10px;border-radius:6px;text-align:left;border-left:3px solid #1976d2;">' +
+          '<strong>Mensaje:</strong><br><br>' +
+          '"Hola ' + nombre + ' 👋<br><br>' +
+          '📅 <strong>Recordatorio de sesión agendada</strong><br><br>' +
+          'Tienes una sesión programada con nosotros.<br><br>' +
+          '✅ Por favor, confirma tu asistencia."</p>' +
+          '<a href="https://wa.me/' + tel + '?text=' + msg + '" target="_blank" style="display:block;padding:11px;background:#25d366;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;margin-bottom:8px;">💬 Enviar recordatorio WhatsApp</a>' +
           '<p style="font-size:9px;color:#aaa;">Cierra esta ventana después de enviar.</p>' +
           '</div>'
-        ).setWidth(320).setHeight(360).setTitle('Recordatorio — ' + nombre);
+        ).setWidth(320).setHeight(360).setTitle('Recordatorio sesión — ' + nombre);
         SpreadsheetApp.getUi().showModelessDialog(html, 'Recordatorio WhatsApp');
 
       // ── OPCIÓN 3: Marcar como completado ───────────────────────────────
@@ -4150,7 +4156,7 @@ function reinstalarCompleto() {
     hd.getRange(2,13,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
     hd.getRange(2,15,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Enviar formulario Kobo','Reenviar recordatorio WhatsApp','Ya completó el formulario'], true).build());
+      .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
     hd.setColumnWidth(3,180).setColumnWidth(15,200);
   }
 
