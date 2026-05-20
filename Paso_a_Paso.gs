@@ -1051,6 +1051,7 @@ function obtenerParticipantes() {
 // HTML completo de la app de fichas — modal centrado, dropdown de acciones, multi-fuente
 const FICHA_HTML = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"><\/script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;color:#333;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -1257,13 +1258,11 @@ function renderPerfil(p){
   var ini=p.nombre.split(' ').slice(0,2).map(function(s){return s[0]||'';}).join('').toUpperCase();
   var pct=Math.min(100,Math.round((p.puntaje/60)*100));
   var lbs=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
-  var dimH=(p.dims||[0,0,0,0,0,0]).map(function(v,i){
-    return '<div class="dim-bar"><div class="dl"><span>'+lbs[i]+'</span><span>'+v+'/10</span></div>'+
-      '<div class="db"><div class="df" style="width:'+Math.round(v*10)+'%"></div></div></div>';
-  }).join('');
+  var radarId='rd_'+Math.random().toString(36).substr(2,9);
+  var dimH='<div style="padding:10px;text-align:center"><canvas id="'+radarId+'"></canvas></div>';
   var docBtn=p.docUrl?'<a href="'+p.docUrl+'" target="_blank" class="docbtn">📄 Abrir Expediente en Drive</a>':'';
   var f=function(l,v){return '<div class="frow"><span class="fl">'+l+'</span><span class="fv">'+esc(v||'—')+'</span></div>';};
-  return '<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
+  var html='<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
     '<div class="phdr"><div class="pav">'+ini+'</div><div>'+
     '<div class="pnom">'+esc(p.nombre)+'</div>'+
     '<div class="ptags">'+
@@ -1282,9 +1281,51 @@ function renderPerfil(p){
     '<div class="sec"><div class="sh">Objetivo laboral</div><div class="txt">'+esc(p.objetivo||'—')+'</div></div>'+
     '<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>'+dimH+'</div>'+
     docBtn+'</div>';
+  setTimeout(function(){drawRadar(radarId,p.dims||[0,0,0,0,0,0],c.texto);},100);
+  return html;
+}
+    docBtn+'</div>';
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── Radar Chart (Dimensiones) ── */
+function drawRadar(canvasId,dims,color){
+  var ctx=document.getElementById(canvasId);if(!ctx)return;
+  var lbs=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+  new Chart(ctx,{
+    type:'radar',
+    data:{
+      labels:lbs,
+      datasets:[{
+        label:'Dimensiones',
+        data:dims,
+        borderColor:color,
+        backgroundColor:color+'33',
+        borderWidth:2,
+        pointRadius:4,
+        pointBackgroundColor:color,
+        pointBorderColor:'#fff',
+        pointBorderWidth:2,
+        tension:.4
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:true,
+      plugins:{legend:{display:false}},
+      scales:{
+        r:{
+          beginAtZero:true,
+          max:10,
+          ticks:{stepSize:2,font:{size:10}},
+          grid:{color:'#e8eaf6'},
+          angleLines:{color:'#e8eaf6'}
+        }
+      }
+    }
+  });
+}
 
 /* ── Dropdown de acciones ── */
 function toggleDD(e){
