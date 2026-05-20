@@ -608,7 +608,7 @@ function crearExpediente(folderBase, id, nombre, fila, M) {
     const h1 = body.appendParagraph('PERFIL DEL PARTICIPANTE');
     h1.setHeading(DocumentApp.ParagraphHeading.HEADING1);
     h1.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-    body.appendParagraph('ID: ' + id);
+    body.appendParagraph('Creamos ID: ' + id);
     body.appendParagraph('');
 
     const s1 = body.appendParagraph('DATOS PERSONALES');
@@ -2445,58 +2445,89 @@ function abrirPerfil(row) {
       '</div>' +
     '</div>' +
 
-    '<div style="padding:12px 16px;border-bottom:1px solid #e8eaf6;display:flex;gap:0;flex-shrink:0;">' +
-      '<button onclick="tabPerfil()" style="flex:1;padding:8px;background:transparent;border:none;border-bottom:2px solid #1a237e;color:#1a237e;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Perfil</button>' +
-      '<button onclick="tabDimensiones()" style="flex:1;padding:8px;background:transparent;border:none;border-bottom:2px solid transparent;color:#9e9e9e;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Dimensiones</button>' +
+    '<div style="padding:0 16px;border-bottom:1px solid #e8eaf6;display:flex;gap:0;flex-shrink:0;" id="tabBtns">' +
+      '<button onclick="tabPerfil()" id="btn0" style="flex:1;padding:9px 4px;background:transparent;border:none;border-bottom:2px solid #1a237e;color:#1a237e;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Perfil</button>' +
+      '<button onclick="tabDimensiones()" id="btn1" style="flex:1;padding:9px 4px;background:transparent;border:none;border-bottom:2px solid transparent;color:#9e9e9e;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Dimensiones</button>' +
+      '<button onclick="tabHistorial()" id="btn2" style="flex:1;padding:9px 4px;background:transparent;border:none;border-bottom:2px solid transparent;color:#9e9e9e;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Historial</button>' +
     '</div>' +
 
-    '<div id="tabPerfil" style="padding:14px 16px;overflow-y:auto;max-height:300px;">' +
-      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;margin-top:0;">📋 Datos Personales</div>' +
+    '<div id="tabPerfil" style="padding:12px 16px;overflow-y:auto;max-height:300px;">' +
+      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">📋 Datos Personales</div>' +
       fila('DPI', p.dpi) +
       fila('Edad', p.edad ? p.edad+' años' : '') +
       fila('Género', p.genero) +
       fila('Teléfono', p.telefono) +
       fila('Zona', p.zona) +
       fila('Email', p.email) +
-      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px;">📚 Perfil Socioeconómico</div>' +
+      '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px;">📚 Perfil Socioeconómico</div>' +
       fila('Educación', p.educacion) +
       fila('Situación Laboral', p.laboral) +
       fila('Fortalezas', p.fortalezas) +
       fila('Objetivo', p.objetivo) +
     '</div>' +
 
-    '<div id="tabDimensiones" style="display:none;padding:16px;overflow-y:hidden;">' +
-      '<div style="position:relative;width:100%;height:260px;">' +
-        '<canvas id="radarChart" style="position:absolute;top:0;left:0;width:100%!important;height:260px!important;"></canvas>' +
+    '<div id="tabDimensiones" style="display:none;padding:14px 16px;overflow-y:auto;max-height:300px;">' +
+      '<div style="position:relative;width:100%;height:240px;">' +
+        '<canvas id="radarChart" style="position:absolute;top:0;left:0;width:100%!important;height:240px!important;"></canvas>' +
       '</div>' +
       '<div id="dimList" style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>' +
     '</div>' +
 
+    '<div id="tabHistorial" style="display:none;padding:12px 16px;overflow-y:auto;max-height:300px;">' +
+      '<div id="historialCont" style="text-align:center;padding:24px;color:#9e9e9e;font-size:11px;">⏳ Cargando historial…</div>' +
+    '</div>' +
+
     '<div style="padding:10px 16px;border-top:1px solid #e8eaf6;background:#f9f9f9;display:flex;gap:6px;flex-shrink:0;">' +
-      (waUrl ? '<a href="'+waUrl+'" target="_blank" style="flex:1;padding:8px;background:#25d366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">💬<br>WhatsApp</a>' : '') +
-      (p.docUrl ? '<a href="'+p.docUrl+'" target="_blank" style="flex:1;padding:8px;background:#e8eaf6;color:#1a237e;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">📄<br>Expediente</a>' : '') +
+      (waUrl ? '<a href="'+waUrl+'" target="_blank" style="flex:1;padding:8px;background:#25d366;color:#fff;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">💬<br>WhatsApp</a>' : '') +
+      (p.docUrl ? '<a href="'+p.docUrl+'" target="_blank" style="flex:1;padding:8px;background:#e8eaf6;color:#1a237e;border-radius:6px;cursor:pointer;font-weight:700;font-size:10px;text-align:center;text-decoration:none;display:block;line-height:1.3;">📄<br>Expediente</a>' : '') +
       '<button onclick="cerrarPerfil()" style="flex:1;padding:8px;background:#f5f5f5;color:#555;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:10px;line-height:1.3;">✕<br>Cerrar</button>' +
     '</div>';
 
   contenido.innerHTML = html;
 
-  // Agregar funciones de pestaña al window para que se puedan llamar
-  window.tabPerfil = function(){
-    document.getElementById('tabPerfil').style.display = 'block';
-    document.getElementById('tabDimensiones').style.display = 'none';
-    document.querySelectorAll('#perfilContenido button').forEach(function(btn,i){
-      if(i===0) { btn.style.borderBottomColor = '#1a237e'; btn.style.color = '#1a237e'; }
-      else if(i===1) { btn.style.borderBottomColor = 'transparent'; btn.style.color = '#9e9e9e'; }
+  function setTab(activeIdx) {
+    ['tabPerfil','tabDimensiones','tabHistorial'].forEach(function(id,i){
+      document.getElementById(id).style.display = i === activeIdx ? 'block' : 'none';
     });
+    ['btn0','btn1','btn2'].forEach(function(id,i){
+      var btn = document.getElementById(id);
+      btn.style.borderBottomColor = i === activeIdx ? '#1a237e' : 'transparent';
+      btn.style.color = i === activeIdx ? '#1a237e' : '#9e9e9e';
+    });
+  }
+
+  window.tabPerfil = function(){ setTab(0); };
+  window.tabDimensiones = function(){ setTab(1); setTimeout(function(){ dibujarRadar(p); }, 100); };
+  window.tabHistorial = function(){
+    setTab(2);
+    var cont = document.getElementById('historialCont');
+    if (cont.dataset.loaded) return;
+    cont.dataset.loaded = '1';
+    google.script.run
+      .withSuccessHandler(function(h){ renderHistorial(h, cont); })
+      .withFailureHandler(function(){ cont.innerHTML = '<p style="color:#e53935;font-size:11px;text-align:center;">Error al cargar historial</p>'; })
+      .obtenerHistorialParticipante(p.id);
   };
-  window.tabDimensiones = function(){
-    document.getElementById('tabPerfil').style.display = 'none';
-    document.getElementById('tabDimensiones').style.display = 'block';
-    document.querySelectorAll('#perfilContenido button').forEach(function(btn,i){
-      if(i===0) { btn.style.borderBottomColor = 'transparent'; btn.style.color = '#9e9e9e'; }
-      else if(i===1) { btn.style.borderBottomColor = '#1a237e'; btn.style.color = '#1a237e'; }
-    });
-    setTimeout(function(){ dibujarRadar(p); }, 100);
+
+  window.renderHistorial = function(h, cont) {
+    if (!h || (h.sesiones.length === 0 && h.derivaciones.length === 0)) {
+      cont.innerHTML = '<div style="text-align:center;padding:24px;color:#bdbdbd;font-size:11px;">Sin registros aún</div>';
+      return;
+    }
+    function item(fecha, icono, titulo, sub, color) {
+      return '<div style="display:flex;gap:10px;margin-bottom:12px;"><div style="width:28px;height:28px;border-radius:50%;background:'+color+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">'+icono+'</div><div style="flex:1;border-bottom:1px solid #f5f5f5;padding-bottom:10px;"><div style="font-size:9px;color:#9e9e9e;margin-bottom:2px;">'+fecha+'</div><div style="font-size:11px;font-weight:600;color:#212121;">'+titulo+'</div>'+(sub?'<div style="font-size:10px;color:#757575;margin-top:2px;">'+sub+'</div>':'')+'</div></div>';
+    }
+    var html = '';
+    if (h.sesiones.length > 0) {
+      html += '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📅 Sesiones ('+h.sesiones.length+')</div>';
+      h.sesiones.forEach(function(s){ html += item(s.fecha,'📅',s.tipo,s.notas,'#1a237e'); });
+    }
+    if (h.derivaciones.length > 0) {
+      html += '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin:'+(h.sesiones.length?'14px':'0')+'  0 8px;">🔗 Derivaciones ('+h.derivaciones.length+')</div>';
+      var dColors = {URGENTE:'#c62828',ALTA:'#e65100',MEDIA:'#f57f17',SUGERIDA:'#1565c0'};
+      h.derivaciones.forEach(function(d){ html += item(d.fecha,'🔗',d.destino,d.motivo+(d.estado?' · '+d.estado:''),dColors[d.prioridad]||'#546e7a'); });
+    }
+    cont.innerHTML = html;
   };
 
   modal.style.display = 'flex';
@@ -3048,6 +3079,44 @@ function guardarSesionInterna(pid, pnom, fecha, tipo, notas) {
   }
 }
 
+// Retorna sesiones + derivaciones de un participante para el Historial del perfil
+function obtenerHistorialParticipante(id) {
+  const ss = SpreadsheetApp.getActive();
+  const resultado = { sesiones: [], derivaciones: [] };
+  try {
+    const hSes = ss.getSheetByName('Sesiones');
+    if (hSes && hSes.getLastRow() > 1) {
+      resultado.sesiones = hSes.getRange(2, 1, hSes.getLastRow()-1, 7).getValues()
+        .filter(r => String(r[1]).trim() === String(id).trim())
+        .map(r => ({
+          fecha:  r[0] ? Utilities.formatDate(new Date(r[0]), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '—',
+          tipo:   String(r[3] || ''),
+          notas:  String(r[4] || ''),
+          user:   String(r[5] || '')
+        }))
+        .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
+    }
+  } catch(e) {}
+  try {
+    const hDer = ss.getSheetByName('Derivaciones');
+    if (hDer && hDer.getLastRow() > 1) {
+      resultado.derivaciones = hDer.getRange(2, 1, hDer.getLastRow()-1, 14).getValues()
+        .filter(r => String(r[1]).trim() === String(id).trim())
+        .map(r => ({
+          fecha:    r[0] ? Utilities.formatDate(new Date(r[0]), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '—',
+          tipo:     String(r[3] || ''),
+          destino:  String(r[4] || ''),
+          motivo:   String(r[5] || ''),
+          estado:   String(r[6] || ''),
+          prioridad:String(r[10] || ''),
+          resultado:String(r[13] || '')
+        }))
+        .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
+    }
+  } catch(e) {}
+  return resultado;
+}
+
 function verSesionesParticipante() {
   try {
     const ss   = SpreadsheetApp.getActive();
@@ -3297,7 +3366,7 @@ function abrirFormDerivacion() {
       'button:hover{background:#283593}' +
       '</style></head><body>' +
       '<h3>➡️ Registrar Derivación</h3>' +
-      '<div class="info"><strong>Participante:</strong> '+escaparHtml(nom)+'<br><strong>ID:</strong> '+escaparHtml(id)+'</div>' +
+      '<div class="info"><strong>Participante:</strong> '+escaparHtml(nom)+'<br><strong>Creamos ID:</strong> '+escaparHtml(id)+'</div>' +
       '<label>Tipo de derivación *</label>' +
       '<select id="tipo" required>' +
       '<option value="">Selecciona...</option>' +
@@ -3382,25 +3451,26 @@ function registrarDerivacionesAutomaticas(ss, id, nombre, fila, M) {
     const dim6      = Number(fila[M.DIM6-1]) || 0;
     const hoy       = new Date();
 
-    const add = (tipo, dest, motivo) => {
-      deriv.appendRow([hoy, id, nombre, tipo, dest, motivo, 'Pendiente','','','']);
-      const c = tipo==='🚨 URGENTE' ? '#ffcdd2' : '#fff9c4';
-      deriv.getRange(deriv.getLastRow(), 1, 1, 10).setBackground(c);
+    const add = (prioNivel, tipo, dest, motivo) => {
+      // Cols: Fecha, Creamos_ID, Nombre, Tipo, Destino, Motivo, Estado, Responsable, Fecha_Seguimiento, Notas, Prioridad, Sesion_Relacionada, Fecha_Cierre, Resultado
+      deriv.appendRow([hoy, id, nombre, tipo, dest, motivo, 'Pendiente', '', '', '', prioNivel, '', '', '']);
+      const c = prioNivel === 'URGENTE' ? '#ffcdd2' : prioNivel === 'ALTA' ? '#ffe0b2' : '#fff9c4';
+      deriv.getRange(deriv.getLastRow(), 1, 1, 14).setBackground(c);
     };
 
     if (perfil==='Perfil D' || prioridad==='CRÍTICO') {
-      add('🚨 URGENTE','Creamos Voces (Apoyo Emocional)','Barreras críticas — Perfil ' + perfil);
-      if (dim5 <= 4) add('🚨 URGENTE','Servicios Profesionales','Barreras estructurales: ' + dim5 + '/10');
+      add('URGENTE','Apoyo Emocional','Creamos Voces','Barreras críticas — Perfil ' + perfil);
+      if (dim5 <= 4) add('URGENTE','Servicios Profesionales','Servicios Profesionales','Barreras estructurales: ' + dim5 + '/10');
       enviarAlertaCritica(id, nombre, perfil, dim5);
     }
-    if (perfil === 'Perfil B') add('💡 SUGERIDA','Mentoría Vocacional','Requiere orientación vocacional — 3-6 sesiones');
+    if (perfil === 'Perfil B') add('MEDIA','Orientación Vocacional','Mentoría Vocacional','Requiere orientación vocacional — 3-6 sesiones');
     if (perfil === 'Perfil C') {
-      if (dim1 <= 4) add('💡 SUGERIDA','Educación de Adultos','Capital educativo bajo: ' + dim1 + '/10');
-      if (dim3 <= 4) add('💡 SUGERIDA','Alfabetización Digital','Habilidades digitales bajas: ' + dim3 + '/10');
+      if (dim1 <= 4) add('MEDIA','Educación','Educación de Adultos','Capital educativo bajo: ' + dim1 + '/10');
+      if (dim3 <= 4) add('MEDIA','Digital','Alfabetización Digital','Habilidades digitales bajas: ' + dim3 + '/10');
     }
-    if (dim5 <= 3 && perfil !== 'Perfil D') add('⚠️ ALERTA','Creamos Voces','Barreras muy bajas: ' + dim5 + '/10');
-    if (dim6 <= 3) add('💡 SUGERIDA','Grupos de Apoyo Comunitario','Red de apoyo débil: ' + dim6 + '/10');
-    if (perfil === 'Perfil A') add('✅ OPORTUNIDAD','Intermediación Laboral','Lista para empleo — ' + Number(fila[M.PUNTAJE-1]) + '/60 pts');
+    if (dim5 <= 3 && perfil !== 'Perfil D') add('ALTA','Apoyo Emocional','Creamos Voces','Barreras muy bajas: ' + dim5 + '/10');
+    if (dim6 <= 3) add('SUGERIDA','Red de Apoyo','Grupos Comunitarios','Red de apoyo débil: ' + dim6 + '/10');
+    if (perfil === 'Perfil A') add('SUGERIDA','Empleabilidad','Intermediación Laboral','Lista para empleo — ' + Number(fila[M.PUNTAJE-1]) + '/60 pts');
   } catch(e) {}
 }
 
@@ -3409,7 +3479,7 @@ function enviarAlertaCritica(id, nombre, perfil, dim5) {
     MailApp.sendEmail(
       getAdminEmail(),
       '🚨 URGENTE: Barreras críticas — ' + nombre,
-      '🚨 CASO URGENTE\n\nParticipante: ' + nombre + '\nID: ' + id +
+      '🚨 CASO URGENTE\n\nParticipante: ' + nombre + '\nCreamos ID: ' + id +
       '\nPerfil: ' + perfil + '\nBarreras estructurales: ' + dim5 + '/10\n\n' +
       'ACCIONES REQUERIDAS:\n• Derivar a Creamos Voces\n• Derivar a Servicios Profesionales\n• No iniciar proceso de empleo hasta resolver barreras\n\nSistema Paso a Paso'
     );
@@ -4171,13 +4241,28 @@ function reinstalarCompleto() {
   }
 
   // ── Derivaciones ─────────────────────────────────────────────────────────
-  if (!ss.getSheetByName('Derivaciones')) {
-    const hder = ss.insertSheet('Derivaciones');
-    hder.appendRow(['Fecha','ID_Participante','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas']);
-    hder.getRange(1,1,1,10).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
-    hder.setFrozenRows(1);
-    hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250);
-    creadas.push('Derivaciones');
+  {
+    let hder = ss.getSheetByName('Derivaciones');
+    if (!hder) {
+      hder = ss.insertSheet('Derivaciones');
+      hder.appendRow(['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas','Prioridad','Sesion_Relacionada','Fecha_Cierre','Resultado']);
+      hder.getRange(1,1,1,14).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
+      hder.setFrozenRows(1);
+      hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250);
+      creadas.push('Derivaciones');
+    } else {
+      // Agregar columnas nuevas si faltan
+      const hdrs = hder.getRange(1,1,1,20).getValues()[0];
+      const nuevas = [['Prioridad',11],['Sesion_Relacionada',12],['Fecha_Cierre',13],['Resultado',14]];
+      nuevas.forEach(function([h,c]){ if (!hdrs.includes(h)) hder.getRange(1,c).setValue(h).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold'); });
+    }
+    // Validaciones
+    hder.getRange(2,7,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Pendiente','Contactado','En proceso','Completado','Cancelado'], true).build());
+    hder.getRange(2,11,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['URGENTE','ALTA','MEDIA','SUGERIDA'], true).build());
+    hder.getRange(2,14,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Contactado','No contestó','En proceso','Completado','Cancelado'], true).build());
   }
 
   // ── Log ──────────────────────────────────────────────────────────────────
