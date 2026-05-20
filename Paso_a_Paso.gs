@@ -2349,8 +2349,11 @@ function abrirPerfil(row) {
       fila('Objetivo', p.objetivo) +
     '</div>' +
 
-    '<div id="tabDimensiones" style="display:none;padding:14px 16px;overflow-y:auto;max-height:300px;text-align:center;">' +
-      '<canvas id="radarChart" height="220" width="300"></canvas>' +
+    '<div id="tabDimensiones" style="display:none;padding:16px;overflow-y:hidden;">' +
+      '<div style="position:relative;width:100%;height:260px;">' +
+        '<canvas id="radarChart" style="position:absolute;top:0;left:0;width:100%!important;height:260px!important;"></canvas>' +
+      '</div>' +
+      '<div id="dimList" style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:4px;"></div>' +
     '</div>' +
 
     '<div style="padding:10px 16px;border-top:1px solid #e8eaf6;background:#f9f9f9;display:flex;gap:6px;flex-shrink:0;">' +
@@ -2400,58 +2403,69 @@ function dibujarRadar(p) {
 function hacerRadar(p, dims, dimLabels) {
   const canvas = document.getElementById('radarChart');
   if (!canvas || !canvas.getContext) return;
-  if (window.radarChartInstance) window.radarChartInstance.destroy();
-  const ctx = canvas.getContext('2d');
+  if (window.radarChartInstance) { window.radarChartInstance.destroy(); window.radarChartInstance = null; }
   const hayDatos = dims.some(function(d){ return d > 0; });
+  const ctx = canvas.getContext('2d');
+  const perfColors = {'Perfil A':'#2e7d32','Perfil B':'#1565c0','Perfil C':'#f57f17','Perfil D':'#b71c1c'};
+  const baseColor = perfColors[p.perfil] || '#3949ab';
+  function hexToRgba(h, a) {
+    var r=parseInt(h.slice(1,3),16), g=parseInt(h.slice(3,5),16), b=parseInt(h.slice(5,7),16);
+    return 'rgba('+r+','+g+','+b+','+a+')';
+  }
   window.radarChartInstance = new Chart(ctx, {
     type: 'radar',
     data: {
       labels: dimLabels,
       datasets: [{
-        label: 'Dimensiones',
-        data: hayDatos ? dims : [0,0,0,0,0,0],
-        borderColor: '#3949ab',
-        backgroundColor: 'rgba(57, 73, 171, 0.12)',
-        borderWidth: 2,
+        label: p.nombre,
+        data: hayDatos ? dims : [1,1,1,1,1,1],
+        borderColor: baseColor,
+        backgroundColor: hexToRgba(baseColor, 0.18),
+        borderWidth: 2.5,
         fill: true,
-        pointRadius: 3.5,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#3949ab',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: baseColor,
         pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        tension: 0.1
+        pointBorderWidth: 2
       }]
     },
     options: {
-      responsive: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
       plugins: {
         legend: { display: false },
-        tooltip: { backgroundColor: 'rgba(26,35,126,.9)', padding: 8, titleFont: { size: 10 }, bodyFont: { size: 9 }, callbacks: { label: function(ctx){ return ' '+ctx.raw+' / 10'; } } }
+        tooltip: {
+          backgroundColor: 'rgba(26,35,126,.9)',
+          padding: 8,
+          callbacks: { label: function(c){ return ' '+c.raw+' / 10'; } }
+        }
       },
       scales: {
         r: {
           beginAtZero: true,
           max: 10,
           min: 0,
-          ticks: { stepSize: 2, font: { size: 8 }, color: '#9e9e9e', backdropColor: 'transparent' },
-          grid: { color: 'rgba(0,0,0,.08)' },
-          angleLines: { color: 'rgba(0,0,0,.1)' },
-          pointLabels: { font: { size: 9, weight: '600' }, color: '#3949ab', padding: 6 }
+          ticks: { stepSize: 2, font: { size: 8 }, color: '#aaa', backdropColor: 'rgba(255,255,255,.0)' },
+          grid: { color: 'rgba(26,35,126,.1)', lineWidth: 1 },
+          angleLines: { color: 'rgba(26,35,126,.12)', lineWidth: 1 },
+          pointLabels: { font: { size: 10, weight: '600' }, color: '#3949ab', padding: 4 }
         }
       }
     }
   });
-  if (!hayDatos) {
-    var parent = canvas.parentNode;
-    var msgEl = parent.querySelector('.radar-msg');
-    if (!msgEl) {
-      msgEl = document.createElement('div');
-      msgEl.className = 'radar-msg';
-      msgEl.style = 'text-align:center;font-size:9px;color:#bdbdbd;margin-top:8px;';
-      msgEl.textContent = 'Sin datos de dimensiones. Los datos se cargan desde el formulario Kobo.';
-      parent.appendChild(msgEl);
-    }
-  }
+  var listEl = document.getElementById('dimList');
+  if (!listEl) return;
+  var colors = ['#3949ab','#1e88e5','#00897b','#43a047','#fb8c00','#e53935'];
+  listEl.innerHTML = dimLabels.map(function(lbl, i){
+    var v = hayDatos ? (dims[i]||0) : 0;
+    var pct = (v/10)*100;
+    return '<div style="padding:4px 0;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:9px;color:#555;margin-bottom:2px;"><span style="font-weight:600;">'+lbl+'</span><span style="color:'+colors[i]+';font-weight:700;">'+v+'/10</span></div>'+
+      '<div style="background:#f0f2ff;border-radius:4px;height:5px;overflow:hidden;"><div style="width:'+pct+'%;height:100%;background:'+colors[i]+';border-radius:4px;transition:width .3s;"></div></div>'+
+    '</div>';
+  }).join('');
 }
 document.getElementById('perfilModal').addEventListener('click', function(e) { if (e.target === this) cerrarPerfil(); });
 <\/script>
@@ -2490,7 +2504,14 @@ function obtenerParticipantes() {
       fortalezas: String(r[M.FORTALEZAS-1] || ''),
       objetivo:   String(r[M.OBJETIVO-1]   || ''),
       docUrl:     String(r[M.DOC_URL-1]    || ''),
-      dims:       [0,0,0,0,0,0]
+      dims: [
+        Number(r[M.DIM1-1]) || 0,
+        Number(r[M.DIM2-1]) || 0,
+        Number(r[M.DIM3-1]) || 0,
+        Number(r[M.DIM4-1]) || 0,
+        Number(r[M.DIM5-1]) || 0,
+        Number(r[M.DIM6-1]) || 0
+      ]
     }));
 }
 
