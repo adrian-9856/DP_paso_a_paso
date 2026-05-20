@@ -2371,12 +2371,6 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 .dim-bar{margin:3px 0}.dim-bar .dl{display:flex;justify-content:space-between;font-size:10px;color:#777;margin-bottom:2px}
 .dim-bar .db{height:5px;background:#e8eaf6;border-radius:3px;overflow:hidden}
 .dim-bar .df{height:5px;border-radius:3px;background:var(--pc)}
-.docbtn{display:block;text-align:center;background:#1a237e;color:#fff;padding:9px;border-radius:6px;margin:10px 14px;text-decoration:none;font-size:12px;font-weight:700}
-.wa-btn{display:flex;align-items:center;justify-content:center;gap:7px;background:#25d366;color:#fff;padding:9px;border-radius:6px;margin:4px 14px;text-decoration:none;font-size:12px;font-weight:700}
-.wa-btn:hover{background:#1da851}
-.ses-btn{display:block;text-align:center;background:#7e57c2;color:#fff;padding:9px;border-radius:6px;margin:4px 14px;text-decoration:none;font-size:12px;font-weight:700;border:none;width:calc(100% - 28px);cursor:pointer}
-.ses-btn:hover{background:#673ab7}
-.btns-perfil{margin:8px 0}
 /* ── RESPONSIVE ── */
 @media (max-width:1200px){
   body{font-size:11px}
@@ -2416,7 +2410,6 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
   .txt{font-size:10px}
   .tag{padding:0px 6px;font-size:8px}
   .dm-item{padding:7px 12px;font-size:11px}
-  .docbtn{padding:8px;font-size:11px;margin:8px 10px}
 }
 @media (max-width:480px){
   body{font-size:9px}
@@ -2446,7 +2439,6 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
   .txt{font-size:9px}
   .tag{padding:0px 4px;font-size:7px;margin-right:2px}
   .dm-item{padding:6px 10px;font-size:10px;gap:6px}
-  .docbtn{padding:7px;font-size:10px;margin:7px 8px}
 }
 </style></head><body onclick="cerrarDropdown(event)">
 
@@ -2589,12 +2581,14 @@ function renderPerfil(p){
   var lbs=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
   var radarId='rd_'+Math.random().toString(36).substr(2,9);
   var dimH='<div style="padding:10px;text-align:center;max-height:280px;display:flex;justify-content:center;align-items:center"><canvas id="'+radarId+'" style="max-width:100%;height:auto;width:100%"></canvas></div>';
-  var docBtn=p.docUrl?'<a href="'+p.docUrl+'" target="_blank" class="docbtn">📄 Abrir Expediente en Drive</a>':'';
   var tel=(p.telefono||'').replace(/\D/g,'');
   if(tel.length===8) tel='502'+tel;
   var waMsg=encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala. ¿Cómo estás? Nos gustaría ponernos en contacto contigo.');
-  var waBtn=tel?'<a href="https://wa.me/'+tel+'?text='+waMsg+'" target="_blank" class="wa-btn">💬 WhatsApp a '+esc(p.nombre.split(' ')[0])+'</a>':'';
-  var sesBtn='<button class="ses-btn" onclick="abrirSesion(\''+esc(p.id)+'\',\''+esc(p.nombre)+'\')">📋 Registrar Sesión</button>';
+  var actDropdown='<div class="dropdown" id="perfil-dd" style="margin:8px 14px"><button class="btn-acc primary" onclick="togglePDD(event)">⚡ Acciones ▾</button><div class="dropdown-menu" id="perfil-ddMenu">';
+  if(tel) actDropdown+='<div class="dm-item" onclick="abrirWhatsApp(\''+tel+'\',\''+waMsg+'\')"><span class="dm-ico">💬</span> Enviar WhatsApp</div>';
+  actDropdown+='<div class="dm-item" onclick="abrirSesion(\''+esc(p.id)+'\',\''+esc(p.nombre)+'\')"><span class="dm-ico">📋</span> Registrar Sesión</div>';
+  if(p.docUrl) actDropdown+='<div class="dm-item" onclick="abrirExpediente(\''+p.docUrl+'\')"><span class="dm-ico">📄</span> Abrir Expediente</div>';
+  actDropdown+='</div></div>';
   var f=function(l,v){return '<div class="frow"><span class="fl">'+l+'</span><span class="fv">'+esc(v||'—')+'</span></div>';};
   var html='<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
     '<div class="phdr"><div class="pav">'+ini+'</div><div>'+
@@ -2614,7 +2608,7 @@ function renderPerfil(p){
     '</div><div class="sec"><div class="sh">Fortalezas</div><div class="txt">'+esc(p.fortalezas||'—')+'</div></div>'+
     '<div class="sec"><div class="sh">Objetivo laboral</div><div class="txt">'+esc(p.objetivo||'—')+'</div></div>'+
     '<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>'+dimH+'</div>'+
-    '<div class="btns-perfil">'+waBtn+sesBtn+docBtn+'</div>'+'</div>';
+    actDropdown+'</div>';
   setTimeout(function(){drawRadar(radarId,p.dims||[0,0,0,0,0,0],c.texto);},100);
   return html;
 }
@@ -2664,18 +2658,39 @@ function toggleDD(e){
   e.stopPropagation();
   document.getElementById('ddMenu').classList.toggle('open');
 }
+function togglePDD(e){
+  e.stopPropagation();
+  document.getElementById('perfil-ddMenu').classList.toggle('open');
+}
 function cerrarDropdown(e){
-  if(!document.getElementById('dd').contains(e.target)){
-    document.getElementById('ddMenu').classList.remove('open');
+  var dd=document.getElementById('dd');
+  var pdd=document.getElementById('perfil-dd');
+  if(dd&&!dd.contains(e.target)){
+    var menu=document.getElementById('ddMenu');
+    if(menu) menu.classList.remove('open');
+  }
+  if(pdd&&!pdd.contains(e.target)){
+    var pmenu=document.getElementById('perfil-ddMenu');
+    if(pmenu) pmenu.classList.remove('open');
   }
 }
 function run(fn){
   document.getElementById('ddMenu').classList.remove('open');
   google.script.run[fn]();
 }
+function abrirWhatsApp(tel, msg){
+  document.getElementById('perfil-ddMenu').classList.remove('open');
+  window.open('https://wa.me/'+tel+'?text='+msg, '_blank');
+}
+function abrirExpediente(url){
+  document.getElementById('perfil-ddMenu').classList.remove('open');
+  window.open(url, '_blank');
+}
 
 /* ── Registrar Sesión ── */
 function abrirSesion(pid, pnom){
+  var pmenu=document.getElementById('perfil-ddMenu');
+  if(pmenu) pmenu.classList.remove('open');
   var hoy=new Date().toISOString().slice(0,10);
   var html='<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center" id="sesOverlay" onclick="if(event.target===this)cerrarSes()">'+
     '<div style="background:#fff;border-radius:10px;padding:20px;width:340px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.3)">'+
