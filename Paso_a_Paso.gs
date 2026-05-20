@@ -132,19 +132,26 @@ function onOpen() {
       .addSeparator()
       // ── Participantes ──
       .addSubMenu(ui.createMenu('👤 Participantes')
+        .addItem('📋 Ver Ficha',               'verFicha')
         .addItem('➕ Agregar Participante',     'agregarParticipanteManual')
         .addItem('✏️ Editar Participante',      'editarParticipante')
-        .addItem('📋 Ver Ficha',               'verFicha')
         .addItem('➡️ Derivar Participante',    'abrirFormDerivacion')
         .addItem('📊 Ver Derivaciones',         'verDerivaciones')
+        .addItem('🗒️ Ver Sesiones',             'verSesionesParticipante')
       )
       // ── Datos & Sincronización ──
       .addSubMenu(ui.createMenu('🔄 Datos & Sincronización')
-        .addItem('🔄 Sincronizar Kobo',         'sincronizarConValidaciones')
-        .addItem('🏢 Importar DP_Empleabilidad', 'sincronizarDesdeSheet')
-        .addItem('📁 Crear Expedientes Drive',   'crearExpedientesPendientes')
-        .addItem('🎨 Colorear Tabla',            'colorearTabla')
-        .addItem('🔁 Restaurar desde Drive',     'restaurarDesdeDrive')
+        .addItem('🔄 Sincronizar Kobo',              'sincronizarConValidaciones')
+        .addSeparator()
+        .addItem('📋 Gestionar Derivados',            'gestionarDerivados')
+        .addItem('📥 Importar DP → Derivados',        'importarDPADerivados')
+        .addItem('📲 Enviar formulario (WhatsApp)',    'enviarFormularioADerivado')
+        .addSeparator()
+        .addItem('⚡ Sync Matutina Automática',       'configurarSyncMatutina')
+        .addSeparator()
+        .addItem('📁 Crear Expedientes Drive',        'crearExpedientesPendientes')
+        .addItem('🎨 Colorear Tabla',                 'colorearTabla')
+        .addItem('🔁 Restaurar desde Drive',          'restaurarDesdeDrive')
       )
       // ── Reportes & Análisis ──
       .addSubMenu(ui.createMenu('📊 Reportes & Análisis')
@@ -302,7 +309,7 @@ function sincronizarAutomatico() {
 }
 
 // ============================================================================
-// IMPORTAR DESDE DP_EMPLEABILIDAD
+// IMPORTAR DESDE DP_EMPLEABILIDAD → hoja "Derivados" (flujo de aprobación)
 // ============================================================================
 
 function sincronizarDesdeSheet(silencioso) {
@@ -433,6 +440,164 @@ function sincronizarDesdeSheet(silencioso) {
     logError('sincronizarDesdeSheet', e);
     if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error al importar: ' + e.message);
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// NUEVO FLUJO: DP_Empleabilidad → hoja "Derivados" (pendiente formulario)
+// ──────────────────────────────────────────────────────────────────────────
+
+const COL_DER = { ID:1, FECHA:2, NOMBRE:3, DPI:4, EDAD:5, GENERO:6, TELEFONO:7,
+                  EDUCACION:8, FORMACION:9, COHORTE:10, NOTA:11,
+                  ESTADO:12, ORIGEN:13, FECHA_IMP:14 };
+const NCOLS_DER = 14;
+
+/** Importa DP_Empleabilidad → hoja "Derivados" (sin tocar Maestro) */
+function importarDPADerivados(silencioso) {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    let hDer = ss.getSheetByName('Derivados');
+    if (!hDer) {
+      hDer = ss.insertSheet('Derivados');
+      const hdrs = ['ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
+                    'Educación','Formación','Cohorte','Notas','Estado Derivado','Origen','Fecha Importación'];
+      hDer.getRange(1,1,1,hdrs.length).setValues([hdrs])
+        .setFontWeight('bold').setBackground('#37474f').setFontColor('#fff');
+      hDer.setFrozenRows(1);
+      [200,110,200,110,60,90,100,130,150,100,200,130,120,130].forEach((w,i) => hDer.setColumnWidth(i+1,w));
+    }
+
+    let ssExt;
+    try { ssExt = SpreadsheetApp.openById(DP_EMPLEABILIDAD.SPREADSHEET_ID); }
+    catch(e) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('❌ No se puede abrir DP_Empleabilidad.');
+      return;
+    }
+    const hSrc = ssExt.getSheetByName(DP_EMPLEABILIDAD.HOJA);
+    if (!hSrc || hSrc.getLastRow() < 2) {
+      if (!silencioso) SpreadsheetApp.getUi().alert('⚠️ La hoja fuente está vacía.');
+      return;
+    }
+
+    // IDs ya en Derivados Y ya en Maestro → evitar duplicados
+    const idsExist = new Set();
+    const maestro  = ss.getSheetByName(CONFIG.HOJA);
+    if (maestro && maestro.getLastRow() > 1)
+      maestro.getRange(2,CONFIG.COL.ID,maestro.getLastRow()-1,1).getValues()
+        .forEach(r => { if(r[0]) idsExist.add(String(r[0]).trim()); });
+    if (hDer.getLastRow() > 1)
+      hDer.getRange(2,COL_DER.ID,hDer.getLastRow()-1,1).getValues()
+        .forEach(r => { if(r[0]) idsExist.add(String(r[0]).trim()); });
+
+    const C   = DP_EMPLEABILIDAD.C;
+    const hoy = new Date();
+    const datos = hSrc.getRange(2,1,hSrc.getLastRow()-1,DP_EMPLEABILIDAD.NCOLS).getValues();
+    const nuevas = [];
+
+    datos.forEach(fila => {
+      const nombre = String(fila[C.NOMBRE]||'').trim();
+      if (!nombre) return;
+      let id = String(fila[C.ID]||'').trim();
+      if (!id) id = nombre.replace(/\s+/g,'').substring(0,4).toUpperCase()
+                  + Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'ddMMyyyy');
+      if (idsExist.has(id)) return;
+      idsExist.add(id);
+      const activoStr = String(fila[C.ACTIVO]||'').toLowerCase().trim();
+      const activo    = ['true','si','sí','1','activo','yes'].includes(activoStr);
+      nuevas.push([
+        id,
+        fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy,
+        nombre,
+        String(fila[C.DPI]     ||'').trim(),
+        fila[C.EDAD]   || '',
+        String(fila[C.GENERO]  ||'').trim(),
+        String(fila[C.TELEFONO]||'').trim(),
+        String(fila[C.EDUCACION]||'').trim(),
+        String(fila[C.FORMACION]||'').trim(),
+        String(fila[C.COHORTE] ||'').trim(),
+        String(fila[C.NOTA]    ||'').trim(),
+        activo ? 'Pendiente formulario' : 'Inactivo',
+        'DP_Empleabilidad',
+        hoy
+      ]);
+    });
+
+    if (nuevas.length) {
+      hDer.getRange(hDer.getLastRow()+1, 1, nuevas.length, NCOLS_DER).setValues(nuevas);
+      // Colorear pendientes
+      const startRow = hDer.getLastRow() - nuevas.length + 1;
+      hDer.getRange(startRow, 1, nuevas.length, NCOLS_DER).setBackground('#fff8e1');
+      SpreadsheetApp.flush();
+    }
+
+    if (!silencioso)
+      SpreadsheetApp.getUi().alert(
+        '✅ Importación a Derivados completada\n\n'+
+        '📋 '+nuevas.length+' personas nuevas en hoja "Derivados"\n'+
+        '⏭️ '+(datos.length - nuevas.length)+' ya existían (omitidas)\n\n'+
+        '👉 Siguiente paso:\n'+
+        'Abre "Gestionar Derivados" para ver el listado\n'+
+        'y enviarles el formulario Paso a Paso.'
+      );
+  } catch(e) {
+    logError('importarDPADerivados', e);
+    if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+  }
+}
+
+/** Abre la hoja Derivados directamente */
+function gestionarDerivados() {
+  const ss  = SpreadsheetApp.getActive();
+  let hDer  = ss.getSheetByName('Derivados');
+  if (!hDer) {
+    importarDPADerivados(false);
+    hDer = ss.getSheetByName('Derivados');
+    if (!hDer) return;
+  }
+  ss.setActiveSheet(hDer);
+  SpreadsheetApp.getUi().alert(
+    '📋 HOJA DERIVADOS\n\n'+
+    'Aquí están las personas importadas de DP_Empleabilidad.\n\n'+
+    '📌 Columna "Estado Derivado":\n'+
+    '  • Pendiente formulario → aún no han llenado el Paso a Paso\n'+
+    '  • Contactado → ya se les envió el formulario\n'+
+    '  • Promovido → ya están en Maestro\n\n'+
+    '📲 Acción recomendada:\n'+
+    'Selecciona una persona y usa el menú\n'+
+    '"🔄 Datos → Enviar WhatsApp formulario"\n'+
+    'para compartirles el link del Kobo.'
+  );
+}
+
+/** Envía WhatsApp con link del formulario Kobo a un Derivado seleccionado */
+function enviarFormularioADerivado() {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hDer = ss.getSheetByName('Derivados');
+    if (!hDer) { SpreadsheetApp.getUi().alert('⚠️ No hay hoja Derivados.'); return; }
+    const fila = ss.getActiveRange().getRow();
+    if (fila < 2) { SpreadsheetApp.getUi().alert('⚠️ Selecciona primero una persona en la hoja Derivados.'); return; }
+    const row  = hDer.getRange(fila, 1, 1, NCOLS_DER).getValues()[0];
+    const nom  = String(row[COL_DER.NOMBRE-1]||'');
+    const tel  = String(row[COL_DER.TELEFONO-1]||'').replace(/\D/g,'');
+    if (!tel) { SpreadsheetApp.getUi().alert('⚠️ '+nom+' no tiene teléfono registrado.'); return; }
+    const numWA = tel.length===8 ? '502'+tel : tel;
+    const koboUrl = 'https://kf.kobotoolbox.org/x/'+CONFIG.KOBO_ASSET_ID;
+    const msg = encodeURIComponent(
+      'Hola '+nom.split(' ')[0]+', somos el equipo de Paso a Paso de Creamos Guatemala.\n\n'+
+      'Te invitamos a completar nuestro formulario de registro para poder iniciar tu proceso:\n'+
+      koboUrl+'\n\n'+
+      '¿Tienes alguna duda? Estamos para ayudarte. 😊'
+    );
+    const waUrl = 'https://wa.me/'+numWA+'?text='+msg;
+    // Actualizar estado en la hoja
+    hDer.getRange(fila, COL_DER.ESTADO).setValue('Contactado');
+    hDer.getRange(fila, 1, 1, NCOLS_DER).setBackground('#e8f5e9');
+    // Abrir WhatsApp en nueva pestaña via dialog
+    const htmlLink = HtmlService.createHtmlOutput(
+      '<script>window.open("'+waUrl+'","_blank");google.script.host.close();</script>'
+    ).setWidth(1).setHeight(1);
+    SpreadsheetApp.getUi().showModalDialog(htmlLink, 'Abriendo WhatsApp…');
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e.message); }
 }
 
 // ============================================================================
@@ -1533,9 +1698,11 @@ function exportarParaPowerBI() {
 // AUTO-ACTUALIZACIÓN POWER BI — Triggers automáticos
 // ============================================================================
 
-// Nombre interno del trigger (para identificarlo y borrarlo)
-const TRIGGER_PBI_FN = 'triggerSilenciosoExportPBI';
+// Triggers
+const TRIGGER_PBI_FN  = 'triggerSilenciosoExportPBI';
+const TRIGGER_SYNC_FN = 'triggerAutoSyncCompleta';
 const PROP_TRIGGER_FREQ = 'pbi_trigger_freq';
+const PROP_SYNC_HORA    = 'sync_hora_diaria';
 
 /**
  * Versión silenciosa de exportarParaPowerBI, ejecutada por el trigger.
@@ -1799,6 +1966,143 @@ function desactivarAutoActualizacion() {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
     logError('desactivarAutoActualizacion', e);
   }
+}
+
+// ============================================================================
+// AUTO-SYNC COMPLETA MATUTINA (Kobo + DP + PBI + Dashboard)
+// ============================================================================
+
+/** Ejecutado por trigger: sincroniza todo sin alertas UI */
+function triggerAutoSyncCompleta() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    Logger.log('🔄 Auto-sync iniciada: ' + new Date());
+
+    // 1. Sincronizar Kobo (silencioso)
+    sincronizarConValidaciones(true);
+    Logger.log('✅ Kobo sincronizado');
+
+    // 2. Sincronizar DP_Empleabilidad → Derivados (silencioso)
+    importarDPADerivados(true);
+    Logger.log('✅ Derivados actualizados');
+
+    // 3. Actualizar hojas Power BI
+    triggerSilenciosoExportPBI();
+    Logger.log('✅ PBI actualizado');
+
+    // 4. Actualizar Dashboard
+    actualizarDashboard(ss);
+    Logger.log('✅ Dashboard actualizado');
+
+    PropertiesService.getScriptProperties().setProperty('sync_last_run', new Date().toISOString());
+    Logger.log('✅ Auto-sync completa finalizada');
+  } catch(e) {
+    logError('triggerAutoSyncCompleta', e);
+  }
+}
+
+/** Muestra diálogo para configurar la sync matutina */
+function configurarSyncMatutina() {
+  const props      = PropertiesService.getScriptProperties();
+  const horaActual = props.getProperty(PROP_SYNC_HORA) || '7';
+  const ultimaRun  = props.getProperty('sync_last_run');
+  const ultimaTxt  = ultimaRun
+    ? Utilities.formatDate(new Date(ultimaRun), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+    : 'Nunca';
+  const activo = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === TRIGGER_SYNC_FN);
+
+  const html = HtmlService.createHtmlOutput(`
+    <!DOCTYPE html><html><head>
+    <style>
+      body{font-family:'Segoe UI',Arial;font-size:13px;margin:0;background:#f5f5f5}
+      .hdr{background:#1a237e;color:#fff;padding:16px 20px}
+      .hdr h2{margin:0;font-size:15px}
+      .hdr p{margin:4px 0 0;font-size:10px;opacity:.85}
+      .body{padding:20px}
+      .status{background:${activo?'#e8f5e9':'#fff3e0'};
+              border-left:4px solid ${activo?'#43a047':'#fb8c00'};
+              padding:10px 14px;border-radius:4px;margin-bottom:18px;font-size:12px}
+      .steps{background:#e8eaf6;border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:11px;line-height:1.8;color:#333}
+      .steps strong{color:#1a237e}
+      .hora-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+      .hora-opt{background:#fff;border:2px solid #e0e0e0;border-radius:8px;padding:10px 6px;
+                text-align:center;cursor:pointer;transition:all .15s}
+      .hora-opt:hover{border-color:#1a237e;background:#f0f2ff}
+      .hora-opt.sel{border-color:#1a237e;background:#e8eaf6}
+      .hora-opt strong{display:block;font-size:16px;color:#1a237e}
+      .hora-opt span{font-size:9px;color:#777}
+      .btn{width:100%;padding:12px;background:#1a237e;color:#fff;border:none;
+           border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;margin-top:4px}
+      .btn:hover{background:#283593}
+      .btn.danger{background:#c62828;margin-top:8px}
+    </style></head><body>
+    <div class="hdr">
+      <h2>⚡ Auto-Sync Completa</h2>
+      <p>Sincroniza Kobo + Derivados + PBI + Dashboard automáticamente</p>
+    </div>
+    <div class="body">
+      <div class="status">
+        Estado: <strong>${activo ? '✅ ACTIVO — a las '+horaActual+':00' : '🔴 INACTIVO'}</strong><br>
+        Última ejecución: <strong>${ultimaTxt}</strong>
+      </div>
+      <div class="steps">
+        <strong>Cada mañana ejecuta automáticamente:</strong><br>
+        1️⃣ Descarga nuevas respuestas de Kobo<br>
+        2️⃣ Importa nuevos registros de DP_Empleabilidad → Derivados<br>
+        3️⃣ Actualiza hojas PBI_Participantes e PBI_Indicadores<br>
+        4️⃣ Reconstruye el Dashboard con datos frescos
+      </div>
+      <p style="margin:0 0 10px;font-weight:bold;color:#333">Hora de ejecución:</p>
+      <div class="hora-grid">
+        <div class="hora-opt ${horaActual==='5'?'sel':''}" onclick="sel(this,'5')"><strong>5:00</strong><span>Madrugada</span></div>
+        <div class="hora-opt ${horaActual==='6'?'sel':''}" onclick="sel(this,'6')"><strong>6:00</strong><span>Temprano</span></div>
+        <div class="hora-opt ${horaActual==='7'?'sel':''}" onclick="sel(this,'7')"><strong>7:00</strong><span>✅ Recomen.</span></div>
+        <div class="hora-opt ${horaActual==='8'?'sel':''}" onclick="sel(this,'8')"><strong>8:00</strong><span>Al llegar</span></div>
+      </div>
+      <button class="btn" onclick="guardar()">⚡ Activar Auto-Sync Diaria</button>
+      <button class="btn danger" onclick="desactivar()">🔴 Desactivar</button>
+    </div>
+    <script>
+      var hora = '${horaActual}';
+      function sel(el,h){ document.querySelectorAll('.hora-opt').forEach(o=>o.classList.remove('sel')); el.classList.add('sel'); hora=h; }
+      function guardar(){
+        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).activarSyncDiaria(hora);
+      }
+      function desactivar(){
+        google.script.run.withSuccessHandler(function(m){alert(m);google.script.host.close();}).desactivarSyncDiaria();
+      }
+    </script></body></html>
+  `).setWidth(460).setHeight(490);
+  SpreadsheetApp.getUi().showModalDialog(html, '⚡ Auto-Sync Completa');
+}
+
+function activarSyncDiaria(hora) {
+  try {
+    ScriptApp.getProjectTriggers()
+      .filter(t => t.getHandlerFunction() === TRIGGER_SYNC_FN)
+      .forEach(t => ScriptApp.deleteTrigger(t));
+
+    ScriptApp.newTrigger(TRIGGER_SYNC_FN).timeBased()
+      .everyDays(1).atHour(parseInt(hora)||7).create();
+
+    PropertiesService.getScriptProperties().setProperty(PROP_SYNC_HORA, String(hora));
+
+    // Ejecutar ahora mismo
+    triggerAutoSyncCompleta();
+
+    return '✅ Auto-Sync activada a las '+hora+':00 cada día.\n\nYa se ejecutó una primera sincronización completa ahora mismo.';
+  } catch(e) {
+    logError('activarSyncDiaria', e);
+    return '❌ Error: ' + e.message;
+  }
+}
+
+function desactivarSyncDiaria() {
+  const triggers = ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === TRIGGER_SYNC_FN);
+  triggers.forEach(t => ScriptApp.deleteTrigger(t));
+  PropertiesService.getScriptProperties().setProperty(PROP_SYNC_HORA, '');
+  SpreadsheetApp.getUi().alert('🔴 Auto-Sync diaria desactivada.');
 }
 
 // ============================================================================
@@ -2068,6 +2372,11 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 .dim-bar .db{height:5px;background:#e8eaf6;border-radius:3px;overflow:hidden}
 .dim-bar .df{height:5px;border-radius:3px;background:var(--pc)}
 .docbtn{display:block;text-align:center;background:#1a237e;color:#fff;padding:9px;border-radius:6px;margin:10px 14px;text-decoration:none;font-size:12px;font-weight:700}
+.wa-btn{display:flex;align-items:center;justify-content:center;gap:7px;background:#25d366;color:#fff;padding:9px;border-radius:6px;margin:4px 14px;text-decoration:none;font-size:12px;font-weight:700}
+.wa-btn:hover{background:#1da851}
+.ses-btn{display:block;text-align:center;background:#7e57c2;color:#fff;padding:9px;border-radius:6px;margin:4px 14px;text-decoration:none;font-size:12px;font-weight:700;border:none;width:calc(100% - 28px);cursor:pointer}
+.ses-btn:hover{background:#673ab7}
+.btns-perfil{margin:8px 0}
 /* ── RESPONSIVE ── */
 @media (max-width:1200px){
   body{font-size:11px}
@@ -2281,6 +2590,11 @@ function renderPerfil(p){
   var radarId='rd_'+Math.random().toString(36).substr(2,9);
   var dimH='<div style="padding:10px;text-align:center;max-height:280px;display:flex;justify-content:center;align-items:center"><canvas id="'+radarId+'" style="max-width:100%;height:auto;width:100%"></canvas></div>';
   var docBtn=p.docUrl?'<a href="'+p.docUrl+'" target="_blank" class="docbtn">📄 Abrir Expediente en Drive</a>':'';
+  var tel=(p.telefono||'').replace(/\D/g,'');
+  if(tel.length===8) tel='502'+tel;
+  var waMsg=encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala. ¿Cómo estás? Nos gustaría ponernos en contacto contigo.');
+  var waBtn=tel?'<a href="https://wa.me/'+tel+'?text='+waMsg+'" target="_blank" class="wa-btn">💬 WhatsApp a '+esc(p.nombre.split(' ')[0])+'</a>':'';
+  var sesBtn='<button class="ses-btn" onclick="abrirSesion(\''+esc(p.id)+'\',\''+esc(p.nombre)+'\')">📋 Registrar Sesión</button>';
   var f=function(l,v){return '<div class="frow"><span class="fl">'+l+'</span><span class="fv">'+esc(v||'—')+'</span></div>';};
   var html='<div style="--pc:'+c.texto+';--pb:'+c.fondo+'">'+
     '<div class="phdr"><div class="pav">'+ini+'</div><div>'+
@@ -2300,7 +2614,7 @@ function renderPerfil(p){
     '</div><div class="sec"><div class="sh">Fortalezas</div><div class="txt">'+esc(p.fortalezas||'—')+'</div></div>'+
     '<div class="sec"><div class="sh">Objetivo laboral</div><div class="txt">'+esc(p.objetivo||'—')+'</div></div>'+
     '<div class="sec"><div class="sh">Dimensiones de diagnóstico</div>'+dimH+'</div>'+
-    docBtn+'</div>';
+    '<div class="btns-perfil">'+waBtn+sesBtn+docBtn+'</div>'+'</div>';
   setTimeout(function(){drawRadar(radarId,p.dims||[0,0,0,0,0,0],c.texto);},100);
   return html;
 }
@@ -2360,8 +2674,102 @@ function run(fn){
   google.script.run[fn]();
 }
 
+/* ── Registrar Sesión ── */
+function abrirSesion(pid, pnom){
+  var hoy=new Date().toISOString().slice(0,10);
+  var html='<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center" id="sesOverlay" onclick="if(event.target===this)cerrarSes()">'+
+    '<div style="background:#fff;border-radius:10px;padding:20px;width:340px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.3)">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
+    '<strong style="color:#1a237e;font-size:14px">📋 Registrar Sesión</strong>'+
+    '<button onclick="cerrarSes()" style="border:none;background:none;font-size:18px;cursor:pointer;color:#888">×</button></div>'+
+    '<div style="font-size:11px;color:#555;background:#e8eaf6;padding:6px 10px;border-radius:5px;margin-bottom:12px">'+
+    '<strong>Participante:</strong> '+pnom+'</div>'+
+    '<label style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:3px">Fecha</label>'+
+    '<input id="sf" type="date" value="'+hoy+'" style="width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;font-size:11px;margin-bottom:10px">'+
+    '<label style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:3px">Tipo de sesión</label>'+
+    '<select id="st" style="width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;font-size:11px;margin-bottom:10px">'+
+    '<option>Orientación Laboral</option><option>Mentoría Individual</option><option>Seguimiento</option>'+
+    '<option>Taller/Actividad</option><option>Derivación</option><option>Otro</option></select>'+
+    '<label style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:3px">Notas (opcional)</label>'+
+    '<textarea id="sn" style="width:100%;padding:7px;border:1px solid #c5cae9;border-radius:4px;font-size:11px;height:70px;resize:none;margin-bottom:12px" placeholder="Resumen de la sesión..."></textarea>'+
+    '<button onclick="guardarSes(\''+pid+'\',\''+pnom+'\')" style="width:100%;padding:10px;background:#7e57c2;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer">✅ Guardar Sesión</button>'+
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function cerrarSes(){ var el=document.getElementById('sesOverlay'); if(el) el.remove(); }
+function guardarSes(pid, pnom){
+  var fecha=document.getElementById('sf').value;
+  var tipo=document.getElementById('st').value;
+  var notas=document.getElementById('sn').value;
+  if(!fecha||!tipo){alert('Completa la fecha y tipo de sesión');return;}
+  cerrarSes();
+  google.script.run
+    .withSuccessHandler(function(){})
+    .withFailureHandler(function(e){alert('❌ Error guardando: '+e.message);})
+    .guardarSesionInterna(pid, pnom, fecha, tipo, notas);
+}
+
 init();
 </script></body></html>`;
+
+// ============================================================================
+// SESIONES DE ACOMPAÑAMIENTO (registro interno)
+// ============================================================================
+
+function guardarSesionInterna(pid, pnom, fecha, tipo, notas) {
+  try {
+    const ss  = SpreadsheetApp.getActive();
+    let hSes  = ss.getSheetByName('Sesiones');
+    if (!hSes) {
+      hSes = ss.insertSheet('Sesiones');
+      hSes.getRange(1,1,1,7).setValues([['Fecha','ID_Participante','Nombre','Tipo_Sesion','Notas','Orientador','Timestamp']])
+        .setFontWeight('bold').setBackground('#1a237e').setFontColor('#fff');
+      hSes.setFrozenRows(1);
+      hSes.setColumnWidth(1,100); hSes.setColumnWidth(2,120); hSes.setColumnWidth(3,180);
+      hSes.setColumnWidth(4,160); hSes.setColumnWidth(5,280);
+    }
+    const orientador = Session.getEffectiveUser().getEmail();
+    hSes.appendRow([new Date(fecha), pid, pnom, tipo, notas||'', orientador, new Date()]);
+    // Limpiar caché para refrescar datos del participante si es necesario
+    CacheService.getScriptCache().remove('p_maestro');
+  } catch(e) {
+    logError('guardarSesionInterna', e);
+    throw e;
+  }
+}
+
+function verSesionesParticipante() {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja || ss.getActiveRange().getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona primero un participante en la hoja Maestro.');
+      return;
+    }
+    const id   = hoja.getRange(ss.getActiveRange().getRow(), CONFIG.COL.ID).getValue();
+    const nom  = hoja.getRange(ss.getActiveRange().getRow(), CONFIG.COL.NOMBRE).getValue();
+    const hSes = ss.getSheetByName('Sesiones');
+    if (!hSes || hSes.getLastRow() < 2) {
+      SpreadsheetApp.getUi().alert('📋 No hay sesiones registradas todavía.\n\nUsa "Ver Ficha" → botón "Registrar Sesión" para agregar la primera.');
+      return;
+    }
+    const datos = hSes.getRange(2,1,hSes.getLastRow()-1,7).getValues()
+      .filter(r => String(r[1]) === String(id));
+    if (!datos.length) {
+      SpreadsheetApp.getUi().alert('📋 '+nom+' no tiene sesiones registradas aún.');
+      return;
+    }
+    let msg = '📋 SESIONES — ' + nom + ' (' + datos.length + ' sesiones)\n';
+    msg += '═══════════════════════════════════\n\n';
+    datos.sort((a,b)=>new Date(b[0])-new Date(a[0])).forEach(r => {
+      msg += Utilities.formatDate(new Date(r[0]), Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      msg += '  ·  ' + r[3] + '\n';
+      if (r[4]) msg += '    ' + String(r[4]).substring(0,80) + '\n';
+      msg += '\n';
+    });
+    SpreadsheetApp.getUi().alert(msg);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e.message); }
+}
 
 // ============================================================================
 // AGREGAR PARTICIPANTE MANUALMENTE
