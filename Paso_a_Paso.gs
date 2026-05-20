@@ -2302,12 +2302,71 @@ function abrirPerfil(row) {
   const p = JSON.parse(row.dataset.perfil);
   const modal = document.getElementById('perfilModal');
   const contenido = document.getElementById('perfilContenido');
-  const dims = p.dims || [0,0,0,0,0,0];
-  const dimLabels = ['Educativo', 'Laboral', 'Digital', 'Vocacional', 'Barreras', 'Red Apoyo'];
-  let html = '<div style="padding:16px;max-height:600px;overflow-y:auto;"><div style="text-align:center;margin-bottom:16px;"><div style="width:60px;height:60px;border-radius:50%;background:#1a237e;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;margin:0 auto 8px;">' + p.nombre.split(' ')[0][0] + '</div><div style="font-size:16px;font-weight:700;color:#1a237e;">' + p.nombre + '</div><div style="font-size:12px;color:#666;">Creamos ID: ' + p.id + '</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-size:11px;"><div><span style="color:#666;">DPI:</span> <strong>' + (p.dpi || '—') + '</strong></div><div><span style="color:#666;">Edad:</span> <strong>' + (p.edad || '—') + '</strong></div><div><span style="color:#666;">Género:</span> <strong>' + (p.genero || '—') + '</strong></div><div><span style="color:#666;">Zona:</span> <strong>' + (p.zona || '—') + '</strong></div><div style="grid-column:1/-1;"><span style="color:#666;">Email:</span> <strong>' + (p.email || '—') + '</strong></div><div style="grid-column:1/-1;"><span style="color:#666;">Teléfono:</span> <strong>' + (p.telefono || '—') + '</strong></div></div><div style="margin-bottom:16px;border-top:1px solid #e8eaf6;padding-top:12px;"><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Educación:</strong> ' + (p.educacion || '—') + '</div><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Laboral:</strong> ' + (p.laboral || '—') + '</div><div style="font-size:11px;color:#666;margin-bottom:4px;"><strong>Fortalezas:</strong> ' + (p.fortalezas || '—') + '</div><div style="font-size:11px;color:#666;"><strong>Objetivo:</strong> ' + (p.objetivo || '—') + '</div></div><canvas id="radarChart" style="max-width:100%;margin:16px 0;"></canvas><div style="display:flex;gap:8px;margin-top:16px;"><button onclick="cerrarPerfil()" style="flex:1;padding:8px 12px;background:#e8eaf6;color:#1a237e;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:11px;">Cerrar</button></div></div>';
+  const PCOL = {'Perfil A':{bg:'#274e13',fg:'#d9ead3'},'Perfil B':{bg:'#1c4587',fg:'#cfe2f3'},'Perfil C':{bg:'#7f6000',fg:'#fff2cc'},'Perfil D':{bg:'#660000',fg:'#fce5cd'},'Orientación':{bg:'#4a148c',fg:'#e1bee7'},'Mentoría':{bg:'#006064',fg:'#e0f7fa'},'Formación':{bg:'#bf360c',fg:'#fbe9e7'},'Inactivo':{bg:'#424242',fg:'#eeeeee'}};
+  const c = PCOL[p.perfil] || {bg:'#37474f',fg:'#eceff1'};
+  const ini = p.nombre.split(' ').slice(0,2).map(function(w){return (w[0]||'').toUpperCase();}).join('');
+  const tel = (function(t){var s=String(t||'').replace(/\D/g,'');return s.length===8?'502'+s:s;})(p.telefono);
+  const waUrl = tel ? 'https://wa.me/'+tel+'?text='+encodeURIComponent('Hola '+p.nombre+', somos el equipo de Paso a Paso de Creamos Guatemala.') : '';
+
+  function row2(label, val) {
+    return '<div style="padding:8px 0;border-bottom:1px solid #f0f2ff;"><span style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;">'+label+'</span><div style="font-size:12px;color:#212121;margin-top:2px;font-weight:500;">'+(val||'<span style="color:#bdbdbd;">—</span>')+'</div></div>';
+  }
+  function chip(label, clr) {
+    return '<span style="background:'+clr+';color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;margin-right:4px;">'+label+'</span>';
+  }
+
+  var puntajeColor = p.puntaje >= 70 ? '#2e7d32' : p.puntaje >= 40 ? '#f57f17' : '#c62828';
+
+  var html =
+    '<div style="background:linear-gradient(135deg,#1a237e 0%,#283593 100%);padding:20px 20px 28px;color:#fff;border-radius:0;">' +
+      '<div style="display:flex;align-items:center;gap:14px;">' +
+        '<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;flex-shrink:0;">'+ini+'</div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:15px;font-weight:700;line-height:1.2;word-break:break-word;">'+p.nombre+'</div>' +
+          '<div style="font-size:10px;opacity:.75;margin-top:3px;">Creamos ID: '+p.id+'</div>' +
+          '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">' +
+            (p.perfil ? '<span style="background:'+c.fg+';color:'+c.bg+';padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">'+p.perfil+'</span>' : '') +
+            (p.estado ? '<span style="background:rgba(255,255,255,.2);padding:2px 9px;border-radius:10px;font-size:10px;">'+p.estado+'</span>' : '') +
+            (p.prioridad==='CRÍTICO' ? '<span style="background:#c62828;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">URGENTE</span>' : '') +
+          '</div>' +
+        '</div>' +
+        (p.puntaje ? '<div style="text-align:center;background:rgba(255,255,255,.15);border-radius:8px;padding:8px 12px;flex-shrink:0;"><div style="font-size:20px;font-weight:800;">'+p.puntaje+'</div><div style="font-size:8px;opacity:.8;text-transform:uppercase;">Puntaje</div></div>' : '') +
+      '</div>' +
+    '</div>' +
+
+    '<div style="padding:14px 16px;overflow-y:auto;max-height:420px;">' +
+
+      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Datos Personales</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">' +
+        row2('DPI', p.dpi) +
+        row2('Edad', p.edad ? p.edad+' años' : '') +
+        row2('Género', p.genero) +
+        row2('Zona', p.zona) +
+      '</div>' +
+      row2('Teléfono', p.telefono) +
+      row2('Email', p.email) +
+
+      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 8px;">Perfil Socioeconómico</div>' +
+      row2('Educación', p.educacion) +
+      row2('Situación Laboral', p.laboral) +
+      row2('Fortalezas', p.fortalezas) +
+      row2('Objetivo', p.objetivo) +
+
+      '<div style="font-size:10px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px;">Dimensiones del Perfil</div>' +
+      '<div style="background:#f5f7ff;border-radius:8px;padding:8px;">' +
+        '<canvas id="radarChart" height="240"></canvas>' +
+      '</div>' +
+
+      '<div style="display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #e8eaf6;">' +
+        (waUrl ? '<a href="'+waUrl+'" target="_blank" style="flex:1;padding:9px;background:#25d366;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:11px;text-align:center;text-decoration:none;display:block;">💬 WhatsApp</a>' : '') +
+        (p.docUrl ? '<a href="'+p.docUrl+'" target="_blank" style="flex:1;padding:9px;background:#e8eaf6;color:#1a237e;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:11px;text-align:center;text-decoration:none;display:block;">📄 Expediente</a>' : '') +
+        '<button onclick="cerrarPerfil()" style="flex:1;padding:9px;background:#f5f5f5;color:#555;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:11px;">Cerrar</button>' +
+      '</div>' +
+    '</div>';
+
   contenido.innerHTML = html;
   modal.style.display = 'flex';
-  setTimeout(() => { dibujarRadar(p); }, 100);
+  setTimeout(function(){ dibujarRadar(p); }, 150);
 }
 function cerrarPerfil() {
   document.getElementById('perfilModal').style.display = 'none';
@@ -2329,38 +2388,58 @@ function hacerRadar(p, dims, dimLabels) {
   if (!canvas) return;
   if (canvas.radarChart) canvas.radarChart.destroy();
   const ctx = canvas.getContext('2d');
+  const hayDatos = dims.some(function(d){ return d > 0; });
   canvas.radarChart = new Chart(ctx, {
     type: 'radar',
     data: {
       labels: dimLabels,
       datasets: [{
-        label: p.nombre,
-        data: dims,
-        borderColor: '#1a237e',
-        backgroundColor: 'rgba(26, 35, 126, 0.2)',
-        borderWidth: 2,
+        label: 'Dimensiones',
+        data: hayDatos ? dims : [0,0,0,0,0,0],
+        borderColor: '#3949ab',
+        backgroundColor: 'rgba(57, 73, 171, 0.15)',
+        borderWidth: 2.5,
         fill: true,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBackgroundColor: '#1a237e',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        pointBackgroundColor: '#3949ab',
         pointBorderColor: '#fff',
         pointBorderWidth: 2
       }]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { display: true, position: 'bottom' } },
-      scales: { r: { beginAtZero: true, max: 10, ticks: { stepSize: 2, font: { size: 10 } } } }
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx){ return ' '+ctx.raw+' / 10'; } } }
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          max: 10,
+          min: 0,
+          ticks: { stepSize: 2, font: { size: 9 }, color: '#9e9e9e', backdropColor: 'transparent' },
+          grid: { color: 'rgba(0,0,0,.07)' },
+          angleLines: { color: 'rgba(0,0,0,.1)' },
+          pointLabels: { font: { size: 10, weight: '600' }, color: '#3949ab' }
+        }
+      }
     }
   });
+  if (!hayDatos) {
+    var msgEl = document.createElement('div');
+    msgEl.style = 'text-align:center;font-size:10px;color:#bdbdbd;margin-top:6px;';
+    msgEl.textContent = 'Sin datos de dimensiones aún';
+    canvas.parentNode.appendChild(msgEl);
+  }
 }
 document.getElementById('perfilModal').addEventListener('click', function(e) { if (e.target === this) cerrarPerfil(); });
 <\/script>
-<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:8px;width:90%;max-width:400px;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
-    <div style="padding:12px 16px;background:#1a237e;color:#fff;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;"><strong>Perfil del Participante</strong><button onclick="cerrarPerfil()" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;">&times;</button></div>
-    <div id="perfilContenido"></div>
+<div id="perfilModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:12px;">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:440px;max-height:92vh;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.28);display:flex;flex-direction:column;">
+    <div style="padding:10px 14px;background:#1a237e;color:#fff;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;"><span style="font-size:11px;font-weight:700;opacity:.8;letter-spacing:.5px;">PERFIL DEL PARTICIPANTE</span><button onclick="cerrarPerfil()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:24px;height:24px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">&times;</button></div>
+    <div id="perfilContenido" style="overflow-y:auto;flex:1;"></div>
   </div>
 </div>
 </body></html>`;
