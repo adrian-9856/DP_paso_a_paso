@@ -2242,7 +2242,6 @@ function obtenerParticipantesDP() {
 // HTML completo de la app de fichas — modal centrado, dropdown de acciones, multi-fuente
 const FICHA_HTML = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"><\/script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;color:#333;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -2443,15 +2442,32 @@ var COLS={
   'Perfil D':{fondo:'#f4cccc',texto:'#660000',cls:'tD'}
 };
 
+var _initTimer=null;
 function init(){
   document.getElementById('contador').textContent = 'Cargando…';
+  if(_initTimer) clearTimeout(_initTimer);
+  _initTimer=setTimeout(function(){
+    document.getElementById('lista').innerHTML=
+      '<div class="vacio" style="color:#c62828">⏱️ Sin respuesta del servidor<br>'+
+      '<small style="display:block;margin-top:6px;background:#fff3e0;padding:8px;border-radius:4px;text-align:left">'+
+      'El servidor tardó más de 20 segundos.<br>Verifica que la hoja "Maestro" existe y que la API Key de Kobo está configurada.</small>'+
+      '<button onclick="recargar()" style="margin-top:10px;padding:6px 14px;background:#1a237e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">🔄 Reintentar</button></div>';
+    document.getElementById('contador').textContent='⏱️ Timeout';
+  },20000);
   google.script.run
     .withSuccessHandler(function(data){
+      clearTimeout(_initTimer);
       todos = data || [];
       document.getElementById('contador').textContent = todos.length + ' participantes';
-      filtrar();
+      try { filtrar(); } catch(e) {
+        document.getElementById('lista').innerHTML=
+          '<div class="vacio" style="color:#c62828">⚠️ Error al mostrar lista<br>'+
+          '<small style="background:#ffebee;display:block;margin-top:6px;padding:8px;border-radius:4px;text-align:left;word-break:break-all">'+String(e)+'</small>'+
+          '<button onclick="recargar()" style="margin-top:10px;padding:6px 14px;background:#1a237e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">🔄 Reintentar</button></div>';
+      }
     })
     .withFailureHandler(function(err){
+      clearTimeout(_initTimer);
       var msg = String(err.message || err);
       document.getElementById('lista').innerHTML =
         '<div class="vacio" style="color:#c62828">❌ Error al cargar datos<br>'+
@@ -2570,6 +2586,17 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function drawRadar(canvasId,dims,color){
   var ctx=document.getElementById(canvasId);if(!ctx)return;
   var lbs=['Educativo','Laboral','Digital','Vocacional','Barreras','Red Apoyo'];
+  if(typeof Chart==='undefined'){
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js';
+    s.onload=function(){doRadar(canvasId,dims,color,lbs);};
+    document.head.appendChild(s);
+    return;
+  }
+  doRadar(canvasId,dims,color,lbs);
+}
+function doRadar(canvasId,dims,color,lbs){
+  var ctx=document.getElementById(canvasId);if(!ctx)return;
   new Chart(ctx,{
     type:'radar',
     data:{
