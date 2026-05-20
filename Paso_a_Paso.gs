@@ -151,6 +151,7 @@ function onOpen() {
         .addItem('📊 Dashboard',               'abrirDashboard')
         .addItem('📈 Analytics',               'abrirAnalytics')
         .addItem('📋 Calidad de Datos',        'analizarCalidadDatos')
+        .addItem('📝 Reporte Mensual',         'generarReporteMensual')
       )
       // ── Herramientas Kobo ──
       .addSubMenu(ui.createMenu('🔬 Herramientas Kobo')
@@ -761,10 +762,10 @@ function sincronizarConDoc(docId, datos, col, valN, valA) {
 }
 
 // ============================================================================
-// DASHBOARD
+// DASHBOARD (in-sheet con gráficos embebidos)
 // ============================================================================
 
-function mostrarDashboardGrafico() {
+function _OLD_mostrarDashboardGrafico() {
   try {
     const ss = SpreadsheetApp.getActive();
     const hoja = ss.getSheetByName(CONFIG.HOJA);
@@ -1052,75 +1053,266 @@ function crearHTMLDashboardGrafico(datos) {
 
 function abrirDashboard() {
   try {
-    mostrarDashboardGrafico();
+    const ss = SpreadsheetApp.getActive();
+    actualizarDashboard(ss);
+    ss.setActiveSheet(ss.getSheetByName('Dashboard'));
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
 }
 
-function actualizarDashboard() {
+function actualizarDashboard(ss) {
   try {
-    const ss   = SpreadsheetApp.getActive();
-    const hoja = ss.getSheetByName(CONFIG.HOJA);
-    const dash = ss.getSheetByName('Dashboard');
-    if (!hoja || !dash) return;
+    if (!ss) ss = SpreadsheetApp.getActive();
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro) return;
 
+    let dash = ss.getSheetByName('Dashboard');
+    if (!dash) dash = ss.insertSheet('Dashboard');
+
+    // Limpiar contenido, formatos y gráficos anteriores
     dash.clear();
-    const M    = CONFIG.COL;
-    const tz   = Session.getScriptTimeZone();
-    const datos = hoja.getLastRow() > 1
-      ? hoja.getRange(2, 1, hoja.getLastRow()-1, 26).getValues().filter(r => r[0])
+    dash.clearFormats();
+    dash.getCharts().forEach(c => dash.removeChart(c));
+
+    const M  = CONFIG.COL;
+    const tz = Session.getScriptTimeZone();
+    const ahora = new Date();
+    const datos = maestro.getLastRow() > 1
+      ? maestro.getRange(2,1,maestro.getLastRow()-1,26).getValues().filter(r => r[M.ID-1])
       : [];
 
-    const addFila = (a, b, bg, fg) => {
-      dash.appendRow([a, b === undefined ? '' : b]);
-      if (bg) dash.getRange(dash.getLastRow(),1,1,2).setBackground(bg);
-      if (fg) dash.getRange(dash.getLastRow(),1,1,2).setFontColor(fg);
-    };
-    const addTit = (txt) => {
-      dash.appendRow([txt]);
-      dash.getRange(dash.getLastRow(),1).setFontWeight('bold').setFontColor('#1a237e').setFontSize(12);
-    };
+    // ── Calcular métricas ──
+    const perfiles = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
+    const estados  = {};
+    const dims     = [[],[],[],[],[],[]];
+    const puntajes = [];
+    let ingresadosMes = 0;
+    const mes = ahora.getMonth(), anio = ahora.getFullYear();
 
-    // Encabezado
-    dash.appendRow(['📊 DASHBOARD — PASO A PASO', '', '', 'Actualizado: ' + Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm')]);
-    dash.getRange(1,1).setFontSize(16).setFontWeight('bold').setFontColor('#1a237e');
-    dash.getRange(1,4).setFontColor('#9e9e9e').setFontSize(10);
-    dash.appendRow([]);
+    datos.forEach(r => {
+      const p = normalizarPerfil(r[M.PERFIL-1]);
+      perfiles[p] = (perfiles[p]||0)+1;
+      const e = r[M.ESTADO-1]||'Sin estado';
+      estados[e] = (estados[e]||0)+1;
+      const pt = Number(r[M.PUNTAJE-1]);
+      if (pt > 0) puntajes.push(pt);
+      for (let i=0;i<6;i++) dims[i].push(Number(r[M.DIM1+i-1])||0);
+      const f = r[M.FECHA-1];
+      if (f instanceof Date && f.getMonth()===mes && f.getFullYear()===anio) ingresadosMes++;
+    });
 
-    // Resumen
-    addTit('📋 RESUMEN');
-    addFila('Total participantes', datos.length);
-    dash.appendRow([]);
+    const total      = datos.length;
+    const promPuntaje = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
+    const dimProm    = dims.map(d => d.length ? Math.round(d.reduce((a,b)=>a+b,0)/d.length*10)/10 : 0);
+    const estEntries = Object.entries(estados).sort((a,b)=>b[1]-a[1]);
 
-    // Por perfil
-    addTit('🎯 POR PERFIL');
-    const pc = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0,'Sin perfil':0};
-    datos.forEach(r => { const p = normalizarPerfil(r[M.PERFIL-1]); pc[p] = (pc[p]||0)+1; });
-    addFila('🟢 Perfil A — Listo para empleo',      pc['Perfil A'], '#d9ead3','#274e13');
-    addFila('🔵 Perfil B — Orientación vocacional',  pc['Perfil B'], '#cfe2f3','#1c4587');
-    addFila('🟡 Perfil C — Desarrollo de capacidades',pc['Perfil C'],'#fff2cc','#7f6000');
-    addFila('🔴 Perfil D — Barreras críticas',       pc['Perfil D'], '#f4cccc','#660000');
-    addFila('⬜ Sin perfil asignado',                pc['Sin perfil']||0);
-    dash.appendRow([]);
+    // ── Dimensiones de columnas ──
+    for (let c=1;c<=8;c++) dash.setColumnWidth(c,130);
+    dash.setColumnWidth(9,15);
+    for (let c=10;c<=12;c++) dash.setColumnWidth(c,130);
 
-    // Por estado
-    addTit('📌 POR ESTADO');
-    const est = {};
-    datos.forEach(r => { const e = r[M.ESTADO-1]||'Sin estado'; est[e]=(est[e]||0)+1; });
-    Object.entries(est).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => addFila(k, v));
-    dash.appendRow([]);
+    // ── ENCABEZADO (filas 1-2) ──
+    dash.setRowHeight(1,50); dash.setRowHeight(2,28); dash.setRowHeight(3,14);
+    dash.getRange('A1:H1').merge()
+      .setValue('📊 DASHBOARD — PASO A PASO')
+      .setFontSize(20).setFontWeight('bold').setFontColor('#fff')
+      .setBackground('#1a237e').setHorizontalAlignment('center').setVerticalAlignment('middle');
+    dash.getRange('A2:H2').merge()
+      .setValue('Actualizado: '+Utilities.formatDate(ahora,tz,'dd/MM/yyyy HH:mm')
+               +'     |     '+total+' participantes registrados')
+      .setFontSize(10).setFontColor('#c5cae9').setBackground('#283593')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
 
-    // Puntajes
-    addTit('📈 PUNTAJE DIAGNÓSTICO');
-    const pts = datos.map(r=>Number(r[M.PUNTAJE-1])).filter(v=>v>0);
-    const prom = pts.length ? Math.round(pts.reduce((a,b)=>a+b,0)/pts.length) : 0;
-    const maxP = pts.reduce((a,b)=>b>a?b:a,0);
-    const minP = pts.length ? pts.reduce((a,b)=>b<a?b:a,pts[0]) : 0;
-    addFila('Promedio', prom + ' / 60');
-    addFila('Máximo',   pts.length ? maxP : '—');
-    addFila('Mínimo',   pts.length ? minP : '—');
+    // ── KPI CARDS (filas 4-6) ──
+    dash.setRowHeight(4,22); dash.setRowHeight(5,45); dash.setRowHeight(6,22);
+    const cards = [
+      { label:'TOTAL',            val:total,                              sub:'Participantes',      bg:'#e8eaf6', fg:'#1a237e' },
+      { label:'PERFIL A',         val:perfiles['Perfil A'],               sub:'Listos para empleo', bg:'#d9ead3', fg:'#274e13' },
+      { label:'EN DESARROLLO',    val:perfiles['Perfil B']+perfiles['Perfil C'], sub:'Perfil B + C',      bg:'#cfe2f3', fg:'#1c4587' },
+      { label:'PUNTAJE PROMEDIO', val:promPuntaje+' / 60',                sub:'Diagnóstico',        bg:'#fff2cc', fg:'#7f6000' },
+    ];
+    cards.forEach((card,i) => {
+      const sc = i*2+1;
+      dash.getRange(4,sc,1,2).merge().setValue(card.label)
+        .setFontSize(8).setFontWeight('bold').setFontColor('#777')
+        .setHorizontalAlignment('center').setBackground(card.bg);
+      dash.getRange(5,sc,1,2).merge().setValue(card.val)
+        .setFontSize(26).setFontWeight('bold').setFontColor(card.fg)
+        .setHorizontalAlignment('center').setBackground(card.bg);
+      dash.getRange(6,sc,1,2).merge().setValue(card.sub)
+        .setFontSize(8).setFontColor('#999')
+        .setHorizontalAlignment('center').setBackground(card.bg);
+    });
 
-    dash.setColumnWidth(1,280); dash.setColumnWidth(2,120);
-  } catch(e) {}
+    // ── DATOS AUXILIARES para gráficos (cols J-L, se ocultan) ──
+    // Perfiles (J1:K6)
+    dash.getRange(1,10,1,2).setValues([['Perfil','Cantidad']]);
+    dash.getRange(2,10,5,2).setValues([
+      ['Perfil A', perfiles['Perfil A']],
+      ['Perfil B', perfiles['Perfil B']],
+      ['Perfil C', perfiles['Perfil C']],
+      ['Perfil D', perfiles['Perfil D']],
+      ['Sin perfil', perfiles['Sin perfil']||0]
+    ]);
+
+    // Estados (J8:K...)
+    dash.getRange(8,10,1,2).setValues([['Estado','Cantidad']]);
+    if (estEntries.length) dash.getRange(9,10,estEntries.length,2).setValues(estEntries);
+
+    // Dimensiones (J16:K22)
+    dash.getRange(16,10,1,2).setValues([['Dimensión','Promedio']]);
+    dash.getRange(17,10,6,2).setValues([
+      ['Cap. Educativo',    dimProm[0]],
+      ['Cap. Laboral',      dimProm[1]],
+      ['Hab. Digitales',    dimProm[2]],
+      ['Claridad Vocal.',   dimProm[3]],
+      ['Barreras',          dimProm[4]],
+      ['Red de Apoyo',      dimProm[5]]
+    ]);
+
+    // ── GRÁFICOS EMBEBIDOS ──
+    if (total > 0) {
+      // Pie — Perfiles
+      dash.insertChart(dash.newChart()
+        .setChartType(Charts.ChartType.PIE)
+        .addRange(dash.getRange('J1:K6'))
+        .setPosition(8, 1, 5, 5)
+        .setOption('title','Distribución por Perfil')
+        .setOption('colors',['#43a047','#1e88e5','#fb8c00','#e53935','#bdbdbd'])
+        .setOption('pieHole', 0.35)
+        .setOption('width',430).setOption('height',270)
+        .build());
+
+      // Bar — Estados
+      dash.insertChart(dash.newChart()
+        .setChartType(Charts.ChartType.BAR)
+        .addRange(dash.getRange(8,10,estEntries.length+1,2))
+        .setPosition(8, 5, 5, 5)
+        .setOption('title','Participantes por Estado')
+        .setOption('colors',['#3949ab'])
+        .setOption('width',430).setOption('height',270)
+        .build());
+
+      // Column — Dimensiones (ancho completo)
+      dash.insertChart(dash.newChart()
+        .setChartType(Charts.ChartType.COLUMN)
+        .addRange(dash.getRange('J16:K22'))
+        .setPosition(25, 1, 5, 5)
+        .setOption('title','Promedio por Dimensión de Diagnóstico (sobre 10)')
+        .setOption('colors',['#5c6bc0'])
+        .setOption('width',870).setOption('height',240)
+        .build());
+    }
+
+    // Ocultar columnas auxiliares
+    dash.hideColumns(10, 3);
+
+  } catch(e) {
+    logError('actualizarDashboard', e);
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+  }
+}
+
+// ── Generador de Reporte Mensual ──
+function generarReporteMensual() {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    const maestro = ss.getSheetByName(CONFIG.HOJA);
+    if (!maestro || maestro.getLastRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ No hay datos para generar el reporte.');
+      return;
+    }
+
+    const M  = CONFIG.COL;
+    const tz = Session.getScriptTimeZone();
+    const ahora = new Date();
+    const mesNombre = Utilities.formatDate(ahora, tz, 'MMMM yyyy');
+    const mes = ahora.getMonth(), anio = ahora.getFullYear();
+
+    const datos = maestro.getRange(2,1,maestro.getLastRow()-1,26).getValues().filter(r => r[M.ID-1]);
+    const perfiles = {'Perfil A':0,'Perfil B':0,'Perfil C':0,'Perfil D':0};
+    const estados  = {};
+    const puntajes = [];
+    let ingresadosMes = 0;
+
+    datos.forEach(r => {
+      const p = normalizarPerfil(r[M.PERFIL-1]);
+      if (perfiles[p] !== undefined) perfiles[p]++;
+      const e = r[M.ESTADO-1]||'Sin estado';
+      estados[e] = (estados[e]||0)+1;
+      const pt = Number(r[M.PUNTAJE-1]);
+      if (pt > 0) puntajes.push(pt);
+      const f = r[M.FECHA-1];
+      if (f instanceof Date && f.getMonth()===mes && f.getFullYear()===anio) ingresadosMes++;
+    });
+
+    const total     = datos.length;
+    const promPt    = puntajes.length ? Math.round(puntajes.reduce((a,b)=>a+b,0)/puntajes.length) : 0;
+    const enCierre  = (estados['Cierre']||0)+(estados['Completado']||0);
+    const activos   = total - (estados['Inactivo']||0) - enCierre;
+
+    const resumenDatos =
+      `• Total acumulado: ${total} participantes\n`+
+      `• Nuevos este mes: ${ingresadosMes}\n`+
+      `• Activos en proceso: ${activos}\n`+
+      `• Perfil A (listos para empleo): ${perfiles['Perfil A']}\n`+
+      `• Perfil B (orientación vocacional): ${perfiles['Perfil B']}\n`+
+      `• Perfil C (desarrollo de capacidades): ${perfiles['Perfil C']}\n`+
+      `• Perfil D (barreras críticas): ${perfiles['Perfil D']}\n`+
+      `• En Mentoría: ${estados['Mentoría']||0}\n`+
+      `• En Formación: ${estados['Formación']||0}\n`+
+      `• Derivados: ${estados['Derivación']||0}\n`+
+      `• Finalizados (Cierre/Completado): ${enCierre}\n`+
+      `• Puntaje diagnóstico promedio: ${promPt} / 60`;
+
+    const promptFinal =
+      `Actúa como redactor de impacto social. Escribe el texto de un reporte mensual para el programa PASO A PASO de Creamos Guatemala.\n\n`+
+      `DATOS DEL PERÍODO — ${mesNombre.toUpperCase()}:\n`+
+      `${resumenDatos}\n\n`+
+      `ESCRIBE ESTAS SECCIONES:\n\n`+
+      `1. TITULAR DE IMPACTO (1 oración)\n`+
+      `   Formato: "[X] personas [logro] gracias a [programa]"\n\n`+
+      `2. RESUMEN EJECUTIVO (3 oraciones)\n`+
+      `   - Qué se hizo\n`+
+      `   - Cuál fue el resultado más importante\n`+
+      `   - Qué sigue\n\n`+
+      `3. LOGROS DEL MES (máximo 5 viñetas)\n`+
+      `   Cada viñeta: verbo en pasado + dato concreto + impacto\n`+
+      `   Ejemplo: "Acompañamos a 12 personas en búsqueda activa, logrando 4 nuevos empleos"\n\n`+
+      `4. DESAFÍOS (máximo 3 viñetas)\n`+
+      `   Tono honesto pero constructivo, no alarmista\n\n`+
+      `5. PRÓXIMAS ACCIONES (3 puntos)\n`+
+      `   Específicas, con responsable implícito y fecha si aplica\n\n`+
+      `TONO: Profesional, cercano, orientado a personas (no a procesos). `+
+      `No usar palabras como "sinergia", "robusto", "implementar" — usar lenguaje simple. Máximo 200 palabras en total.`;
+
+    const html = HtmlService.createHtmlOutput(
+      `<!DOCTYPE html><html><head><style>
+        body{font-family:'Segoe UI',Arial;font-size:12px;margin:0;background:#f5f5f5}
+        .hdr{background:#1a237e;color:#fff;padding:14px 18px}
+        .hdr h2{margin:0;font-size:14px}
+        .hdr p{margin:4px 0 0;font-size:10px;opacity:.8}
+        .body{padding:16px}
+        textarea{width:100%;height:520px;font-size:11px;font-family:monospace;border:1px solid #c5cae9;border-radius:6px;padding:12px;resize:none;background:#fff;line-height:1.6}
+        .btn{display:block;width:100%;margin-top:10px;padding:10px;background:#1a237e;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+        .btn:hover{background:#283593}
+        .note{font-size:10px;color:#999;margin-top:8px;text-align:center}
+      </style></head><body>
+        <div class="hdr"><h2>📝 Reporte Mensual — ${mesNombre}</h2>
+          <p>Copia este prompt y pégalo en Claude o ChatGPT para generar el reporte</p></div>
+        <div class="body">
+          <textarea id="pt" readonly>${promptFinal.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+          <button class="btn" onclick="document.getElementById('pt').select();document.execCommand('copy');this.textContent='✅ ¡Copiado!'">📋 Copiar Prompt</button>
+          <div class="note">Después de copiar, pégalo en tu herramienta de IA favorita</div>
+        </div>
+      </body></html>`
+    ).setWidth(600).setHeight(700);
+
+    SpreadsheetApp.getUi().showModalDialog(html, '📝 Reporte Mensual — ' + mesNombre);
+
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
+    logError('generarReporteMensual', e);
+  }
 }
 
 // ============================================================================
