@@ -137,6 +137,7 @@ function onOpen() {
       .addSeparator()
       // ── Configuración & Setup ─────────────────────────────────────────
       .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
+      .addItem('🔧 Actualizar Hoja Derivados',        'actualizarHojaDerivados')
       .addItem('⚙️ Configuración',                   'abrirConfiguracion')
       .addSeparator()
       // ── Zona de peligro ───────────────────────────────────────────────
@@ -148,6 +149,37 @@ function onOpen() {
 // ============================================================================
 // DIAGNÓSTICO
 // ============================================================================
+
+function actualizarHojaDerivados() {
+  const ss = SpreadsheetApp.getActive();
+  const hd = ss.getSheetByName('Derivados');
+  if (!hd) { SpreadsheetApp.getUi().alert('❌ No existe la hoja Derivados.'); return; }
+
+  const headers = hd.getRange(1, 1, 1, 100).getValues()[0];
+  let accionCol = headers.findIndex(h => String(h).includes('Acción'));
+
+  // Si no existe la columna Acción, agregarla al final
+  if (accionCol < 0) {
+    const lastCol = headers.reduce((acc, v, i) => v ? i + 1 : acc, 0) + 1;
+    accionCol = lastCol - 1;
+    hd.getRange(1, lastCol).setValue('Acción').setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+    hd.setColumnWidth(lastCol, 200);
+  }
+
+  // Actualizar dropdown de la columna Acción
+  hd.getRange(2, accionCol + 1, 500, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList([
+        'Enviar formulario Kobo',
+        'Reenviar recordatorio WhatsApp',
+        'Ya completó el formulario'
+      ], true)
+      .setAllowInvalid(false)
+      .build()
+  );
+
+  SpreadsheetApp.getUi().alert('✅ Hoja Derivados actualizada.\n\nEl dropdown "Acción" ahora tiene las 3 opciones correctas:\n• Enviar formulario Kobo\n• Reenviar recordatorio WhatsApp\n• Ya completó el formulario');
+}
 
 function diagnostico() {
   const ui = SpreadsheetApp.getUi();
@@ -765,49 +797,73 @@ function manejarEdicion(e) {
       const col  = e.range.getColumn();
       const valN = e.value || '';
 
-      // Verificar si es la columna de Acción buscando por header
       const headers = sheet.getRange(1, 1, 1, 100).getValues()[0];
       const accionCol = headers.findIndex(h => String(h).includes('Acción'));
       if (fila < 2 || col !== accionCol + 1 || !valN) return;
       e.range.clearContent();
 
-      const rowData = sheet.getRange(fila, 1, 1, 100).getValues()[0];
-      const nombreIdx = headers.findIndex(h => String(h).includes('Nombre'));
-      const nombre = String(rowData[nombreIdx] || '');
+      const rowData  = sheet.getRange(fila, 1, 1, 100).getValues()[0];
+      const nombre   = String(rowData[headers.findIndex(h => String(h).includes('Nombre'))] || '');
+      const telRaw   = String(rowData[headers.findIndex(h => String(h).includes('Teléfono'))] || '').replace(/\D/g,'');
+      const tel      = telRaw.length === 8 ? '502' + telRaw : telRaw;
+      const estadoIdx = headers.findIndex(h => String(h).includes('Estado'));
       const KOBO_FORM = 'https://ee.kobotoolbox.org/x/M9M734If';
 
-      if (valN.includes('Enviar') || valN.includes('recordatorio')) {
-        // Dialog para mostrar el link (presencial, no WhatsApp)
+      // ── OPCIÓN 1: Mostrar link del formulario (presencial) ──────────────
+      if (valN.includes('Enviar formulario')) {
         const html = HtmlService.createHtmlOutput(
-          '<div style="font-family:\'Segoe UI\',sans-serif;padding:24px;text-align:center;max-width:380px;">' +
-          '<div style="font-size:40px;margin-bottom:12px;">📋</div>' +
-          '<h2 style="font-size:16px;color:#1a237e;margin:0 0 6px 0;">Formulario Kobo para</h2>' +
-          '<p style="font-size:15px;font-weight:700;color:#212121;margin:0 0 16px 0;">' + nombre + '</p>' +
-          '<div style="background:#f5f5f5;border-left:4px solid #1a237e;padding:12px;border-radius:4px;margin-bottom:16px;text-align:left;">' +
-          '<p style="margin:0 0 8px 0;font-size:11px;color:#666;font-weight:600;">LINK DEL FORMULARIO:</p>' +
-          '<p style="margin:0;font-family:monospace;font-size:10px;word-break:break-all;color:#1a237e;padding:8px;background:#fff;border-radius:3px;border:1px solid #ddd;">' + KOBO_FORM + '</p>' +
+          '<div style="font-family:\'Segoe UI\',sans-serif;padding:22px;text-align:center;">' +
+          '<div style="font-size:38px;margin-bottom:10px;">📋</div>' +
+          '<p style="font-size:13px;color:#666;margin:0 0 4px 0;">Formulario de inscripción para</p>' +
+          '<p style="font-size:15px;font-weight:700;color:#1a237e;margin:0 0 18px 0;">' + nombre + '</p>' +
+          '<div style="background:#f5f5f5;border-left:3px solid #1a237e;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;text-align:left;">' +
+          '<p style="margin:0 0 6px 0;font-size:9px;color:#999;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">Link del formulario</p>' +
+          '<code style="font-size:10px;color:#1a237e;word-break:break-all;">' + KOBO_FORM + '</code>' +
           '</div>' +
-          '<p style="font-size:11px;color:#666;margin:0 0 14px 0;line-height:1.5;"><strong>Instrucciones:</strong><br>Comparte este link con ' + nombre + ' para que llene el formulario. Puedes:<br>• Copiar y enviar por WhatsApp/SMS<br>• Mostrar en tu teléfono presencialmente</p>' +
-          '<div style="display:flex;gap:8px;">' +
-          '<button onclick="navigator.clipboard.writeText(\'' + KOBO_FORM + '\').then(()=>alert(\'✅ Link copiado\'));" style="flex:1;padding:10px 16px;background:#1a237e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">📋 Copiar link</button>' +
-          '<a href="' + KOBO_FORM + '" target="_blank" style="flex:1;padding:10px 16px;background:#25d366;color:#fff;border:none;border-radius:6px;text-decoration:none;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;">🌐 Abrir</a>' +
+          '<p style="font-size:10px;color:#777;margin:0 0 16px;line-height:1.5;">Muéstrale este link a <strong>' + nombre + '</strong> para que lo llene en tu teléfono o compártelo por WhatsApp/SMS.</p>' +
+          '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+          '<button onclick="navigator.clipboard.writeText(\'' + KOBO_FORM + '\').then(()=>{this.textContent=\'✅ Copiado\';}).catch(()=>{})" style="flex:1;padding:9px;background:#1a237e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:11px;">📋 Copiar link</button>' +
+          '<a href="' + KOBO_FORM + '" target="_blank" style="flex:1;padding:9px;background:#1e88e5;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;">🌐 Abrir form.</a>' +
           '</div>' +
-          '<p style="font-size:9px;color:#aaa;margin:12px 0 0 0;">Cierra cuando hayas terminado</p>' +
+          (tel ? '<a href="https://wa.me/' + tel + '?text=' + encodeURIComponent('Hola ' + nombre + ', te comparto el formulario de Paso a Paso para que lo llenes: ' + KOBO_FORM) + '" target="_blank" style="display:block;padding:9px;background:#25d366;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:11px;text-align:center;">💬 Enviar por WhatsApp</a>' : '') +
           '</div>'
-        ).setWidth(360).setHeight(420).setTitle('Formulario Kobo — ' + nombre);
+        ).setWidth(340).setHeight(380).setTitle('Formulario Kobo — ' + nombre);
         SpreadsheetApp.getUi().showModelessDialog(html, 'Formulario Kobo');
-        // Marcar como enviado - buscar columna Estado
-        const estadoIdx = headers.findIndex(h => String(h).includes('Estado'));
         if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1).setValue('Formulario enviado');
 
-      } else if (valN.includes('completó')) {
-        // Marcar como completado
-        const estadoIdx = headers.findIndex(h => String(h).includes('Estado'));
-        const fechaIdx = headers.findIndex(h => String(h).includes('Fecha Aprobación'));
-        if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1).setValue('Completó formulario');
-        if (fechaIdx >= 0) sheet.getRange(fila, fechaIdx + 1).setValue(new Date());
-        if (estadoIdx >= 0) sheet.getRange(fila, estadoIdx + 1, 1, Math.max(1, Math.abs(fechaIdx - estadoIdx) + 1)).setBackground('#d9ead3');
-        SpreadsheetApp.getUi().alert('✅ Marcado como completado.\n\n' + nombre + ' puede proceder con el siguiente paso del programa.');
+      // ── OPCIÓN 2: Recordatorio por WhatsApp ────────────────────────────
+      } else if (valN.includes('Reenviar') || valN.includes('recordatorio')) {
+        if (!tel) {
+          SpreadsheetApp.getUi().alert('⚠️ Sin teléfono\n\n' + nombre + ' no tiene número registrado.\nAbre el formulario con la opción "Enviar formulario Kobo" para compartirlo presencialmente.');
+          return;
+        }
+        const msg = encodeURIComponent(
+          'Hola ' + nombre + ' 👋, te escribimos del equipo de *Paso a Paso - Creamos Guatemala*.\n\n' +
+          '📋 Te recordamos que aún tienes pendiente llenar tu formulario de inscripción:\n' +
+          KOBO_FORM + '\n\n' +
+          '¡Es rápido! Solo toma unos minutos. ¿Tienes alguna duda?'
+        );
+        const html = HtmlService.createHtmlOutput(
+          '<div style="font-family:\'Segoe UI\',sans-serif;padding:22px;text-align:center;">' +
+          '<div style="font-size:38px;margin-bottom:10px;">🔁</div>' +
+          '<p style="font-size:13px;color:#666;margin:0 0 4px;">Recordatorio para</p>' +
+          '<p style="font-size:15px;font-weight:700;color:#1a237e;margin:0 0 6px;">' + nombre + '</p>' +
+          '<p style="font-size:11px;color:#888;margin:0 0 18px;">📱 ' + telRaw + '</p>' +
+          '<p style="font-size:10px;color:#555;margin:0 0 16px;line-height:1.5;background:#fff3e0;padding:10px;border-radius:6px;text-align:left;">' +
+          '"Hola ' + nombre + ' 👋, te recordamos llenar el formulario de inscripción de Paso a Paso: ' + KOBO_FORM + '"</p>' +
+          '<a href="https://wa.me/' + tel + '?text=' + msg + '" target="_blank" style="display:block;padding:11px;background:#25d366;color:#fff;border-radius:6px;text-decoration:none;font-weight:700;font-size:13px;margin-bottom:8px;">💬 Enviar recordatorio por WhatsApp</a>' +
+          '<p style="font-size:9px;color:#aaa;">Cierra esta ventana después de enviar.</p>' +
+          '</div>'
+        ).setWidth(320).setHeight(360).setTitle('Recordatorio — ' + nombre);
+        SpreadsheetApp.getUi().showModelessDialog(html, 'Recordatorio WhatsApp');
+
+      // ── OPCIÓN 3: Marcar como completado ───────────────────────────────
+      } else if (valN.includes('complet')) {
+        if (estadoIdx >= 0) {
+          sheet.getRange(fila, estadoIdx + 1).setValue('Completó formulario');
+          sheet.getRange(fila, estadoIdx + 1).setBackground('#d9ead3').setFontColor('#274e13');
+        }
+        SpreadsheetApp.getUi().alert('✅ ' + nombre + ' marcada como completado.\n\nCuando sus datos lleguen desde Kobo, aparecerán automáticamente en la hoja Maestro.');
       }
       return;
     }
@@ -4094,7 +4150,7 @@ function reinstalarCompleto() {
     hd.getRange(2,13,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
     hd.getRange(2,15,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['📲 Enviar formulario Kobo','🔁 Reenviar recordatorio','✅ Ya completó el formulario'], true).build());
+      .requireValueInList(['Enviar formulario Kobo','Reenviar recordatorio WhatsApp','Ya completó el formulario'], true).build());
     hd.setColumnWidth(3,180).setColumnWidth(15,200);
   }
 
