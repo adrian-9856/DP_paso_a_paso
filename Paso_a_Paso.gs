@@ -2182,10 +2182,12 @@ function actualizarAnalytics(ss) {
 // Abre la app de fichas — no requiere seleccionar fila
 function verFicha() {
   try {
-    const html = HtmlService.createHtmlOutput(FICHA_HTML)
-      .setWidth(900).setHeight(750);
+    const datos = obtenerParticipantes();
+    const html = HtmlService.createHtmlOutput(
+      FICHA_HTML.replace('/*__DATOS__*/', 'todos=' + JSON.stringify(datos) + ';')
+    ).setWidth(900).setHeight(750);
     SpreadsheetApp.getUi().showModalDialog(html, '👤 Participantes');
-  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error al abrir: ' + e.message); }
 }
 
 // Lee SOLO el Maestro (sin caché para máxima confiabilidad)
@@ -2412,40 +2414,32 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
 
 <script>
 var todos=[], derivs=[], tabActual='p', ft='', fv='', abierto=null;
+/*__DATOS__*/
 var COLS={'Perfil A':{bg:'#274e13',fg:'#d9ead3'},'Perfil B':{bg:'#1c4587',fg:'#cfe2f3'},'Perfil C':{bg:'#7f6000',fg:'#fff2cc'},'Perfil D':{bg:'#660000',fg:'#f4cccc'}};
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function tel502(t){var s=(t||'').replace(/\\D/g,'');return s.length===8?'502'+s:s;}
 function waMens(nom){return encodeURIComponent('Hola '+nom+', somos el equipo de Paso a Paso de Creamos Guatemala. ¿Cómo estás? Nos gustaría ponernos en contacto contigo.');}
 
 /* ── Carga participantes ── */
-var _t=null;
 function iniciar(){
-  document.getElementById('cnt').textContent='Cargando…';
-  clearTimeout(_t);
-  _t=setTimeout(function(){
-    document.getElementById('lista').innerHTML='<div class="empty" style="color:#c62828">⏱️ Sin respuesta del servidor (20s)<br><small>Verifica que la hoja "Maestro" existe</small><br><button onclick="recargar()" style="margin-top:8px;padding:5px 12px;background:#1a237e;color:#fff;border:none;border-radius:4px;cursor:pointer">🔄 Reintentar</button></div>';
-    document.getElementById('cnt').textContent='⏱️';
-  },20000);
+  // Datos inyectados por verFicha() al servir el HTML
+  document.getElementById('cnt').textContent=todos.length+' participantes';
+  fil();
+}
+function recargar(){
+  abierto=null;
+  document.getElementById('lista').innerHTML='<div class="empty"><div class="spin">⏳</div><br>Actualizando…</div>';
   google.script.run
     .withSuccessHandler(function(d){
-      clearTimeout(_t);
       todos=d||[];
       document.getElementById('cnt').textContent=todos.length+' participantes';
       fil();
     })
     .withFailureHandler(function(e){
-      clearTimeout(_t);
       document.getElementById('lista').innerHTML='<div class="empty" style="color:#c62828">❌ '+esc(String(e.message||e))+'<br><button onclick="recargar()" style="margin-top:8px;padding:5px 12px;background:#1a237e;color:#fff;border:none;border-radius:4px;cursor:pointer">🔄 Reintentar</button></div>';
-      document.getElementById('cnt').textContent='Error';
     })
     .obtenerParticipantes();
 }
-function recargar(){
-  abierto=null;
-  document.getElementById('lista').innerHTML='<div class="empty"><div class="spin">⏳</div><br>Cargando…</div>';
-  iniciar();
-}
-
 /* ── Filtros & render participantes ── */
 function fil(){
   var q=document.getElementById('q').value.toLowerCase();
