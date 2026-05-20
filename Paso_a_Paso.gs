@@ -815,7 +815,7 @@ function mostrarDashboardGrafico() {
     const modal = HtmlService.createHtmlOutput(html)
       .setWidth(1200)
       .setHeight(900);
-    SpreadsheetApp.getUi().modelessDialog(modal, '📊 Dashboard — Paso a Paso');
+    SpreadsheetApp.getUi().showModelessDialog(modal, '📊 Dashboard — Paso a Paso');
 
   } catch(e) {
     SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
@@ -1554,8 +1554,6 @@ function renderPerfil(p){
     docBtn+'</div>';
   setTimeout(function(){drawRadar(radarId,p.dims||[0,0,0,0,0,0],c.texto);},100);
   return html;
-}
-    docBtn+'</div>';
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
