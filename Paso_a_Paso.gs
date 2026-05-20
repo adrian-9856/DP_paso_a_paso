@@ -21,7 +21,8 @@ const CONFIG = {
     ID:1, FECHA:2, NOMBRE:3, DPI:4, EDAD:5, GENERO:6, TELEFONO:7,
     ZONA:8, EMAIL:9, EDUCACION:10, LABORAL:11, FORTALEZAS:12, OBJETIVO:13,
     PERFIL:14, PRIORIDAD:15, PUNTAJE:16, DIM1:17, DIM2:18, DIM3:19,
-    DIM4:20, DIM5:21, DIM6:22, ESTADO:23, CARPETA_ID:24, DOC_ID:25, DOC_URL:26
+    DIM4:20, DIM5:21, DIM6:22, ESTADO:23, CARPETA_ID:24, DOC_ID:25, DOC_URL:26,
+    TIPO_CIERRE:28, FECHA_CIERRE:29, RESULTADO_CIERRE:30
   }
 };
 
@@ -2882,6 +2883,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;background:#f0f2ff;c
         <div class="dmi" onclick="run('agregarParticipanteManual')"><span class="dmi-ico">➕</span><div class="dmi-t"><span class="dmi-l">Agregar Participante</span><span class="dmi-s">Registrar nuevo manualmente</span></div></div>
         <div class="dmi" onclick="run('editarParticipante')"><span class="dmi-ico">✏️</span><div class="dmi-t"><span class="dmi-l">Editar Datos</span><span class="dmi-s">Modificar datos del participante</span></div></div>
         <div class="dmi" onclick="run('abrirFormDerivacion')"><span class="dmi-ico">➡️</span><div class="dmi-t"><span class="dmi-l">Derivar a Otro Programa</span><span class="dmi-s">Enviar a otra institución</span></div></div>
+        <div class="dmi" onclick="run('abrirFormCierre')"><span class="dmi-ico">🏁</span><div class="dmi-t"><span class="dmi-l">Paso a Paso de Cierre</span><span class="dmi-s">Registrar cierre del participante</span></div></div>
       </div>
     </div>
     <button class="btn btn-g" onclick="recargar()">🔄 Actualizar</button>
@@ -3470,6 +3472,208 @@ function abrirFormDerivacion() {
     ).setTitle('➡️ Derivar Participante').setWidth(380);
     SpreadsheetApp.getUi().showSidebar(html);
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+// ============================================================================
+// PASO A PASO DE CIERRE
+// ============================================================================
+
+function abrirFormCierre() {
+  try {
+    const ss    = SpreadsheetApp.getActive();
+    const hoja  = ss.getSheetByName(CONFIG.HOJA);
+    const rango = ss.getActiveRange();
+    if (!hoja || rango.getRow() < 2) {
+      SpreadsheetApp.getUi().alert('⚠️ Selecciona un participante en Maestro.');
+      return;
+    }
+    const datos = hoja.getRange(rango.getRow(), 1, 1, 26).getValues()[0];
+    const C = CONFIG.COL;
+    const fila  = rango.getRow();
+    const id    = datos[C.ID-1]     || '';
+    const nom   = datos[C.NOMBRE-1] || '';
+    const est   = datos[C.ESTADO-1] || '';
+    if (!id) { SpreadsheetApp.getUi().alert('⚠️ Participante sin ID.'); return; }
+
+    const estadosFinales = ['Cierre', 'Completado'];
+    if (estadosFinales.includes(est)) {
+      SpreadsheetApp.getUi().alert('ℹ️ Este participante ya tiene cierre registrado.\nEstado actual: ' + est);
+      return;
+    }
+
+    const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+    const html = HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+      '*{box-sizing:border-box;margin:0;padding:0}' +
+      'body{font-family:Arial,sans-serif;background:#f5f7ff;font-size:12px;padding:0}' +
+      '.header{background:linear-gradient(135deg,#1a237e,#283593);color:#fff;padding:16px;text-align:center}' +
+      '.header h3{font-size:15px;margin-bottom:4px}' +
+      '.header span{font-size:11px;opacity:.85}' +
+      '.steps{display:flex;justify-content:center;gap:0;padding:12px 16px 8px;background:#fff;border-bottom:1px solid #e8eaf6}' +
+      '.step{display:flex;align-items:center;gap:4px;font-size:10px;color:#9e9e9e}' +
+      '.step.active{color:#1a237e;font-weight:700}' +
+      '.step.done{color:#2e7d32}' +
+      '.step-num{width:20px;height:20px;border-radius:50%;border:2px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}' +
+      '.step-sep{width:24px;height:2px;background:#e0e0e0;margin:0 4px}' +
+      '.step.done .step-sep,.step.active .step-sep{background:#1a237e}' +
+      '.panel{display:none;padding:16px;animation:fd .25s}' +
+      '.panel.on{display:block}' +
+      '@keyframes fd{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}' +
+      '.info-box{background:#e8eaf6;border-left:4px solid #1a237e;padding:10px 12px;border-radius:4px;margin-bottom:14px}' +
+      '.info-box strong{color:#1a237e;font-size:12px}' +
+      '.info-box p{color:#444;margin-top:4px;font-size:11px}' +
+      '.tipo-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}' +
+      '.tipo-card{border:2px solid #e0e0e0;border-radius:8px;padding:12px 8px;text-align:center;cursor:pointer;transition:.2s;background:#fff}' +
+      '.tipo-card:hover{border-color:#3949ab;background:#e8eaf6}' +
+      '.tipo-card.sel{border-color:#1a237e;background:#e8eaf6}' +
+      '.tipo-card .ico{font-size:22px;margin-bottom:4px}' +
+      '.tipo-card .lbl{font-size:10px;font-weight:700;color:#333;line-height:1.3}' +
+      'label{display:block;font-weight:700;margin:10px 0 4px;color:#333;font-size:11px}' +
+      'input,select,textarea{width:100%;padding:8px;border:1px solid #c5cae9;border-radius:4px;font-size:12px;background:#fff}' +
+      'textarea{height:70px;resize:vertical}' +
+      '.btn-sig{background:#1a237e;color:#fff;padding:10px;border:none;border-radius:5px;cursor:pointer;width:100%;font-weight:700;font-size:12px;margin-top:10px}' +
+      '.btn-sig:hover{background:#283593}' +
+      '.btn-back{background:#e0e0e0;color:#333;padding:8px;border:none;border-radius:5px;cursor:pointer;width:100%;font-size:11px;margin-top:6px}' +
+      '.btn-back:hover{background:#bdbdbd}' +
+      '.estado-chip{display:inline-block;padding:2px 10px;border-radius:12px;font-size:10px;font-weight:700;background:#fff3e0;color:#e65100;margin-left:6px}' +
+      '</style></head><body>' +
+
+      '<div class="header">' +
+      '<h3>🏁 Paso a Paso de Cierre</h3>' +
+      '<span>' + escaparHtml(nom) + ' · ' + escaparHtml(id) + '</span>' +
+      '</div>' +
+
+      '<div class="steps">' +
+      '<div class="step active" id="s1"><div class="step-num">1</div><span>Tipo</span></div>' +
+      '<div class="step-sep"></div>' +
+      '<div class="step" id="s2"><div class="step-num">2</div><span>Detalles</span></div>' +
+      '<div class="step-sep"></div>' +
+      '<div class="step" id="s3"><div class="step-num">3</div><span>Confirmar</span></div>' +
+      '</div>' +
+
+      /* ── PASO 1: tipo de cierre ── */
+      '<div class="panel on" id="p1">' +
+      '<div class="info-box"><strong>Participante</strong>' +
+      '<p>' + escaparHtml(nom) + ' — Estado actual: <strong>' + escaparHtml(est || 'Sin estado') + '</strong></p></div>' +
+      '<label>¿Cómo finaliza el proceso?</label>' +
+      '<div class="tipo-grid">' +
+      '<div class="tipo-card" id="tc-completado" onclick="selTipo(\'✅ Completado\')"><div class="ico">✅</div><div class="lbl">Completado<br>(Graduado)</div></div>' +
+      '<div class="tipo-card" id="tc-no" onclick="selTipo(\'❌ No completado\')"><div class="ico">❌</div><div class="lbl">No completado</div></div>' +
+      '<div class="tipo-card" id="tc-abandono" onclick="selTipo(\'🚪 Abandonó\')"><div class="ico">🚪</div><div class="lbl">Abandonó</div></div>' +
+      '<div class="tipo-card" id="tc-derivado" onclick="selTipo(\'➡️ Derivado a cierre\')"><div class="ico">➡️</div><div class="lbl">Derivado a cierre</div></div>' +
+      '</div>' +
+      '<button class="btn-sig" onclick="irPaso2()">Siguiente →</button>' +
+      '</div>' +
+
+      /* ── PASO 2: fecha y resultado ── */
+      '<div class="panel" id="p2">' +
+      '<div class="info-box"><strong>Tipo de cierre seleccionado:</strong><span class="estado-chip" id="tipo-sel-lbl">—</span></div>' +
+      '<label>Fecha de cierre *</label>' +
+      '<input type="date" id="fecha" value="' + hoy + '">' +
+      '<label>Resultado / Observaciones *</label>' +
+      '<textarea id="resultado" placeholder="Describe el resultado del proceso, logros alcanzados, situación final del participante…"></textarea>' +
+      '<button class="btn-sig" onclick="irPaso3()">Siguiente →</button>' +
+      '<button class="btn-back" onclick="irPaso(1)">← Atrás</button>' +
+      '</div>' +
+
+      /* ── PASO 3: confirmación ── */
+      '<div class="panel" id="p3">' +
+      '<div class="info-box"><strong>Resumen del cierre</strong><p id="resumen-txt" style="margin-top:6px;line-height:1.6"></p></div>' +
+      '<button class="btn-sig" onclick="confirmarCierre()" id="btn-confirmar">🏁 Registrar Cierre</button>' +
+      '<button class="btn-back" onclick="irPaso(2)">← Atrás</button>' +
+      '</div>' +
+
+      '<script>' +
+      'var tipoCierre="";' +
+      'var ID_MAP={"✅ Completado":"tc-completado","❌ No completado":"tc-no","🚪 Abandonó":"tc-abandono","➡️ Derivado a cierre":"tc-derivado"};' +
+      'function selTipo(t){' +
+      '  tipoCierre=t;' +
+      '  Object.keys(ID_MAP).forEach(function(k){document.getElementById(ID_MAP[k]).classList.remove("sel");});' +
+      '  document.getElementById(ID_MAP[t]).classList.add("sel");' +
+      '}' +
+      'function irPaso(n){' +
+      '  [1,2,3].forEach(function(i){' +
+      '    document.getElementById("p"+i).classList.remove("on");' +
+      '    var s=document.getElementById("s"+i);' +
+      '    s.classList.remove("active","done");' +
+      '    if(i<n)s.classList.add("done");' +
+      '    else if(i===n)s.classList.add("active");' +
+      '  });' +
+      '  document.getElementById("p"+n).classList.add("on");' +
+      '}' +
+      'function irPaso2(){' +
+      '  if(!tipoCierre){alert("Selecciona un tipo de cierre.");return;}' +
+      '  document.getElementById("tipo-sel-lbl").textContent=tipoCierre;' +
+      '  irPaso(2);' +
+      '}' +
+      'function irPaso3(){' +
+      '  var fecha=document.getElementById("fecha").value;' +
+      '  var res=document.getElementById("resultado").value.trim();' +
+      '  if(!fecha){alert("Ingresa la fecha de cierre.");return;}' +
+      '  if(!res){alert("Ingresa el resultado/observaciones.");return;}' +
+      '  var fechaFmt=fecha.split("-").reverse().join("/");' +
+      '  document.getElementById("resumen-txt").innerHTML=' +
+      '    "<b>Participante:</b> ' + escaparHtml(nom) + '<br>"' +
+      '   +"<b>ID:</b> ' + escaparHtml(id) + '<br>"' +
+      '   +"<b>Tipo:</b> "+tipoCierre+"<br>"' +
+      '   +"<b>Fecha:</b> "+fechaFmt+"<br>"' +
+      '   +"<b>Resultado:</b> "+res;' +
+      '  irPaso(3);' +
+      '}' +
+      'function confirmarCierre(){' +
+      '  var fecha=document.getElementById("fecha").value;' +
+      '  var res=document.getElementById("resultado").value.trim();' +
+      '  var btn=document.getElementById("btn-confirmar");' +
+      '  btn.disabled=true;btn.textContent="⏳ Guardando…";' +
+      '  google.script.run' +
+      '    .withSuccessHandler(function(){alert("✅ Cierre registrado correctamente.");google.script.host.close();})' +
+      '    .withFailureHandler(function(e){alert("❌ Error: "+e.message);btn.disabled=false;btn.textContent="🏁 Registrar Cierre";})' +
+      '    .guardarCierre(' + fila + ',"' + escaparHtml(id) + '","' + escaparHtml(nom) + '",tipoCierre,fecha,res);' +
+      '}' +
+      '</script></body></html>'
+    ).setTitle('🏁 Cierre — ' + nom).setWidth(360);
+    SpreadsheetApp.getUi().showSidebar(html);
+  } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
+}
+
+function guardarCierre(fila, id, nombre, tipoCierre, fechaCierreStr, resultado) {
+  try {
+    const ss   = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName(CONFIG.HOJA);
+    if (!hoja) throw new Error('Hoja Maestro no encontrada.');
+    const C = CONFIG.COL;
+
+    const nuevoEstado = tipoCierre.includes('Completado') ? 'Completado' : 'Cierre';
+    const fechaCierre = fechaCierreStr ? new Date(fechaCierreStr) : new Date();
+
+    hoja.getRange(fila, C.ESTADO).setValue(nuevoEstado);
+    hoja.getRange(fila, C.TIPO_CIERRE).setValue(tipoCierre);
+    hoja.getRange(fila, C.FECHA_CIERRE).setValue(fechaCierre);
+    hoja.getRange(fila, C.RESULTADO_CIERRE).setValue(resultado);
+
+    // Colorear la fila de cierre en verde oscuro
+    hoja.getRange(fila, 1, 1, 30).setBackground(nuevoEstado === 'Completado' ? '#d9ead3' : '#f3f3f3');
+
+    // Registrar en hoja Cierres
+    let hCierres = ss.getSheetByName('Cierres');
+    if (!hCierres) {
+      hCierres = ss.insertSheet('Cierres');
+      hCierres.appendRow(['Fecha_Cierre','ID_Creamos','Nombre','Tipo_Cierre','Resultado','Encargado','Estado_Final','Timestamp']);
+      hCierres.getRange(1,1,1,8).setFontWeight('bold').setBackground('#1b5e20').setFontColor('#fff');
+      hCierres.setFrozenRows(1);
+    }
+    const encargado = Session.getEffectiveUser().getEmail();
+    hCierres.appendRow([fechaCierre, id, nombre, tipoCierre, resultado, encargado, nuevoEstado, new Date()]);
+
+    SpreadsheetApp.flush();
+
+    // Evento de calendario post-cierre si aplica
+    try { crearEventoCalendario(nombre, nuevoEstado); } catch(e2) {}
+  } catch(e) {
+    logError('guardarCierre', e);
+    throw e;
+  }
 }
 
 // ============================================================================
@@ -4250,6 +4454,11 @@ function reinstalarCompleto() {
   const hdrAcc = maestro.getRange(1, 27);
   hdrAcc.setValue('⚡ Acción Rápida').setBackground('#283593').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
   maestro.setColumnWidth(27, 160);
+  // Columnas 28-30 — Datos de Cierre
+  const cierreHeaders = [['Tipo_Cierre','Fecha_Cierre','Resultado_Cierre']];
+  maestro.getRange(1, 28, 1, 3).setValues(cierreHeaders)
+    .setBackground('#1b5e20').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+  maestro.setColumnWidth(28, 140).setColumnWidth(29, 110).setColumnWidth(30, 220);
   const lastDataRow = Math.max(maestro.getLastRow(), 500);
   const rngAcc = maestro.getRange(2, 27, lastDataRow - 1, 1);
   rngAcc.setDataValidation(SpreadsheetApp.newDataValidation()
