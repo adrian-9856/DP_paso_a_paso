@@ -2766,20 +2766,22 @@ function obtenerDerivados() {
         .forEach(r => { const t = String(r[0]||'').replace(/\D/g,''); if (t) telEnMaestro.add(t); });
     }
 
+    // COL_DER (1-based): ID:1, FECHA:2, NOMBRE:3, DPI:4, EDAD:5, GENERO:6, TELEFONO:7,
+    //                    EDUCACION:8, FORMACION:9, COHORTE:10, NOTA:11, ESTADO:12, ORIGEN:13, FECHA_IMP:14
     return hDeriv.getRange(2, 1, hDeriv.getLastRow()-1, 14).getValues()
-      .filter(r => r[2]) // tiene nombre
+      .filter(r => r[COL_DER.NOMBRE-1]) // tiene nombre
       .map(r => {
-        const tel = String(r[3]||'').replace(/\D/g,'');
+        const tel = String(r[COL_DER.TELEFONO-1]||'').replace(/\D/g,'');
         const telN = tel.length === 8 ? '502'+tel : tel;
-        const enM = idsEnMaestro.has(String(r[1]).trim()) || (tel && telEnMaestro.has(tel)) || (telN && telEnMaestro.has(telN));
+        const enM = idsEnMaestro.has(String(r[COL_DER.ID-1]).trim()) || (tel && telEnMaestro.has(tel)) || (telN && telEnMaestro.has(telN));
         return {
-          nombre:    String(r[2]||''),
-          telefono:  String(r[3]||''),
-          genero:    String(r[4]||''),
-          educacion: String(r[6]||''),
-          formacion: String(r[8]||''),
-          estadoDeriv: String(r[12]||'Pendiente'),
-          enMaestro: enM
+          nombre:      String(r[COL_DER.NOMBRE    -1]||''),
+          telefono:    String(r[COL_DER.TELEFONO  -1]||''),
+          genero:      String(r[COL_DER.GENERO    -1]||''),
+          educacion:   String(r[COL_DER.EDUCACION -1]||''),
+          formacion:   String(r[COL_DER.FORMACION -1]||''),
+          estadoDeriv: String(r[COL_DER.ESTADO    -1]||'Pendiente'),
+          enMaestro:   enM
         };
       });
   } catch(e) {
