@@ -254,7 +254,17 @@ function configurarTriggers() {
 }
 
 function sincronizarAutomatico() {
-  sincronizarDesdeSheet(true);
+  // DP_Empleabilidad
+  try { importarDPADerivados(true); } catch(e) { logError('syncAuto/DP_Emplea', e); }
+  // Todas las demás fuentes activas en Fuentes_Externas
+  try {
+    leerFuentesExternas().forEach(function(f) {
+      if (String(f.ssId).trim() === String(DP_EMPLEABILIDAD.SPREADSHEET_ID).trim()) return;
+      try { importarFuenteGenerica(f.ssId, f.hoja, f.nombre, true); }
+      catch(e) { logError('syncAuto/' + f.nombre, e); }
+    });
+  } catch(e) { logError('syncAuto/fuentes', e); }
+  try { CacheService.getScriptCache().removeAll(['p_maestro']); } catch(e) {}
 }
 
 // ============================================================================
@@ -491,6 +501,175 @@ function importarDPADerivados(silencioso) {
     logError('importarDPADerivados', e);
     if (!silencioso) SpreadsheetApp.getUi().alert('❌ Error: ' + e.message);
   }
+}
+
+// ============================================================================
+// IMPORTACIÓN GENÉRICA — multi-fuente con auto-detección de columnas
+// ============================================================================
+
+/**
+ * Normaliza un string para comparación insensible a tildes, mayúsculas y separadores.
+ */
+function _normCol(s) {
+  return String(s||'').toLowerCase()
+    .replace(/[áäà]/g,'a').replace(/[éëè]/g,'e').replace(/[íïì]/g,'i')
+    .replace(/[óöò]/g,'o').replace(/[úüù]/g,'u')
+    .replace(/[\s_\-\.]/g,'');
+}
+
+/**
+ * Auto-detecta índices de columna (0-based) a partir de los headers de una hoja.
+ * Tolerante a tildes, mayúsculas, espacios y variantes de nombre.
+ */
+function autoDetectarCols(headers) {
+  const n = _normCol;
+  const find = (...keys) => {
+    for (const k of keys) {
+      const i = headers.findIndex(h => n(h) === n(k));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  return {
+    ID:        find('ID','CreamosID','Creamos ID','creamos_id','id_participante','codigo','Codigo','code','Carnet'),
+    FECHA:     find('Fecha','FechaIngreso','Fecha Ingreso','FechaRegistro','Fecha Registro','fecha_ingreso','Date','Fecha de registro'),
+    NOMBRE:    find('Nombre','NombreCompleto','Nombre Completo','Apellidos y Nombre','full name','Participante','nombre_completo'),
+    DPI:       find('DPI','NumeroDPI','Numero DPI','numero_dpi','Cedula','Documento','DNI','CUI'),
+    EDAD:      find('Edad','Age','Anos','Años','edad_participante'),
+    GENERO:    find('Genero','Género','Sexo','Gender','genero_participante'),
+    TELEFONO:  find('Telefono','Teléfono','Celular','Movil','Móvil','Phone','Tel','telefono_celular','numero_telefono'),
+    EMAIL:     find('Email','Correo','Correo electronico','Correo Electrónico','E-mail','Mail','email_participante'),
+    EDUCACION: find('Educacion','Educación','Nivel academico','Nivel Académico','Escolaridad','UltimoGrado','Ultimo Grado','nivel_educativo'),
+    FORMACION: find('Formacion','Formación','Programa','TipodeCurso','Tipo de Curso','Curso','Capacitacion','Capacitación','nombre_curso','tipo_formacion'),
+    COHORTE:   find('Cohorte','Grupo','Cohort','Generacion','Generación','Ciclo','cohorte_numero','numero_cohorte'),
+    NOTA:      find('Notas','Nota','Observaciones','Comentarios','Notes','observacion','nota_adicional'),
+    ACTIVO:    find('Activo','Active','Estado','Participando','Status','Inscrito','activo_yn','participando','Vigente'),
+  };
+}
+
+/**
+ * Importa desde cualquier Google Sheet externo → hoja Derivados.
+ * Auto-detecta columnas por nombre de encabezado.
+ * Retorna {nuevos, omitidos, error}.
+ */
+function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso) {
+  const ss = SpreadsheetApp.getActive();
+
+  // Garantizar que Derivados existe con headers correctos
+  let hDer = ss.getSheetByName('Derivados');
+  if (!hDer) {
+    importarDPADerivados(true);
+    hDer = ss.getSheetByName('Derivados');
+    if (!hDer) return { nuevos:0, omitidos:0, error:'No se pudo crear hoja Derivados' };
+  }
+
+  // Abrir fuente externa
+  let ssExt;
+  try { ssExt = SpreadsheetApp.openById(ssId); }
+  catch(e) {
+    if (!silencioso) SpreadsheetApp.getUi().alert(
+      '❌ No se puede abrir "' + nombreFuente + '"\n\n' +
+      'ID del Spreadsheet: ' + ssId + '\n\n' +
+      'Verifica que tienes acceso a ese Google Sheet.');
+    return { nuevos:0, omitidos:0, error: e.message };
+  }
+
+  const hSrc = nombreHoja ? ssExt.getSheetByName(nombreHoja) : ssExt.getSheets()[0];
+  if (!hSrc) {
+    const hojas = ssExt.getSheets().map(h => h.getName()).join(', ');
+    if (!silencioso) SpreadsheetApp.getUi().alert(
+      '❌ ' + nombreFuente + ': No existe la hoja "' + nombreHoja + '".\n\n' +
+      'Hojas disponibles en ese archivo: ' + hojas);
+    return { nuevos:0, omitidos:0, error: 'Hoja no encontrada' };
+  }
+  if (hSrc.getLastRow() < 2) return { nuevos:0, omitidos:0, error: null };
+
+  // Leer todas las filas de una vez
+  const lastCol    = Math.max(hSrc.getLastColumn(), 5);
+  const todasFilas = hSrc.getRange(1, 1, hSrc.getLastRow(), lastCol).getValues();
+  const headers    = todasFilas[0];
+  const C = autoDetectarCols(headers);
+
+  if (C.NOMBRE < 0) {
+    if (!silencioso) SpreadsheetApp.getUi().alert(
+      '❌ ' + nombreFuente + ': No se encontró columna de Nombre.\n\n' +
+      'Headers detectados: ' + headers.filter(Boolean).slice(0,12).join(' | ') + '\n\n' +
+      'La hoja necesita una columna llamada "Nombre", "Nombre Completo" o similar.');
+    return { nuevos:0, omitidos:0, error: 'Sin columna Nombre' };
+  }
+
+  // IDs ya existentes (Derivados + Maestro) para evitar duplicados
+  const idsExist = new Set();
+  const maestro  = ss.getSheetByName(CONFIG.HOJA);
+  if (maestro && maestro.getLastRow() > 1)
+    maestro.getRange(2, CONFIG.COL.ID, maestro.getLastRow()-1, 1).getValues()
+      .forEach(r => { if (r[0]) idsExist.add(String(r[0]).trim()); });
+  if (hDer.getLastRow() > 1)
+    hDer.getRange(2, COL_DER.ID, hDer.getLastRow()-1, 1).getValues()
+      .forEach(r => { if (r[0]) idsExist.add(String(r[0]).trim()); });
+
+  const hoy    = new Date();
+  const tz     = Session.getScriptTimeZone();
+  const prefix = nombreFuente.replace(/[^A-Za-z0-9]/g,'').substring(0,3).toUpperCase();
+  const nuevas = [];
+
+  todasFilas.slice(1).forEach(fila => {
+    const nombre = String(C.NOMBRE >= 0 ? fila[C.NOMBRE] : '').trim();
+    if (!nombre) return;
+
+    // Usar ID de la fuente o generar uno con prefijo de la fuente
+    let id = String(C.ID >= 0 ? fila[C.ID] : '').trim();
+    if (!id) id = prefix + nombre.replace(/\s+/g,'').substring(0,4).toUpperCase()
+                + Utilities.formatDate(hoy, tz, 'ddMMyyyy');
+    if (idsExist.has(id)) return;
+    idsExist.add(id);
+
+    const activoRaw = String(C.ACTIVO >= 0 ? fila[C.ACTIVO] : '').toLowerCase().trim();
+    const activo    = activoRaw === '' ||
+      ['true','si','sí','1','activo','activa','yes','inscrito','inscrita','participando','vigente'].includes(activoRaw);
+    const fecha     = C.FECHA >= 0 && fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
+
+    // Construir fila en el orden de COL_DER (14 columnas)
+    nuevas.push([
+      id,                                                                     // 1 ID
+      fecha,                                                                  // 2 Fecha Orig.
+      nombre,                                                                 // 3 Nombre
+      String(C.DPI       >= 0 ? fila[C.DPI]       : '').trim(),              // 4 DPI
+      C.EDAD      >= 0 ? (fila[C.EDAD] || '') : '',                          // 5 Edad
+      String(C.GENERO    >= 0 ? fila[C.GENERO]    : '').trim(),              // 6 Género
+      String(C.TELEFONO  >= 0 ? fila[C.TELEFONO]  : '').trim(),              // 7 Teléfono
+      String(C.EDUCACION >= 0 ? fila[C.EDUCACION] : '').trim(),              // 8 Educación
+      String(C.FORMACION >= 0 ? fila[C.FORMACION] : '').trim(),              // 9 Formación
+      String(C.COHORTE   >= 0 ? fila[C.COHORTE]   : '').trim(),              // 10 Cohorte
+      String(C.NOTA      >= 0 ? fila[C.NOTA]       : '').trim(),              // 11 Notas
+      activo ? 'Pendiente formulario' : 'Inactivo',                          // 12 Estado Derivado
+      nombreFuente,                                                           // 13 Fuente
+      hoy                                                                     // 14 Fecha Importación
+    ]);
+  });
+
+  if (nuevas.length) {
+    const startRow = hDer.getLastRow() + 1;
+    hDer.getRange(startRow, 1, nuevas.length, NCOLS_DER).setValues(nuevas);
+    // Color diferente por fuente para identificar origen visualmente
+    const coloresFuente = { 'DP_Empleabilidad':'#fff8e1', 'AYB':'#e8f5e9', 'TECH':'#e3f2fd' };
+    const bg = coloresFuente[nombreFuente] || '#f3e5f5';
+    hDer.getRange(startRow, 1, nuevas.length, NCOLS_DER).setBackground(bg);
+    SpreadsheetApp.flush();
+
+    // Registrar timestamp en Fuentes_Externas
+    try {
+      const hfe = ss.getSheetByName('Fuentes_Externas');
+      if (hfe && hfe.getLastRow() > 1) {
+        hfe.getRange(2, 1, hfe.getLastRow()-1, 5).getValues().forEach((r, i) => {
+          if (String(r[1]).trim() === String(ssId).trim())
+            hfe.getRange(i + 2, 5).setValue(new Date());
+        });
+      }
+    } catch(e) {}
+  }
+
+  return { nuevos: nuevas.length, omitidos: todasFilas.length - 1 - nuevas.length, error: null };
 }
 
 /** Abre la hoja Derivados directamente */
@@ -4486,21 +4665,24 @@ function reinstalarCompleto() {
     let hd = ss.getSheetByName('Derivados');
     if (!hd) {
       hd = ss.insertSheet('Derivados');
-      hd.appendRow(['Fecha_Import','ID','Nombre','Teléfono','Género','Edad','Educación','DPI','Formación','Cohorte','Notas','Activo','Estado_Derivado','Fecha_Aprobación','⚡ Acción']);
+      // Headers en el mismo orden que COL_DER + columna Acción al final
+      hd.appendRow(['ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
+                    'Educación','Formación','Cohorte','Notas','Estado Derivado','Fuente','Fecha Importación','⚡ Acción']);
       hd.getRange(1,1,1,15).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
       hd.setFrozenRows(1);
       creadas.push('Derivados');
     } else {
       // Asegurar columna Acción si no existe
-      if (hd.getRange(1,15).getValue() !== '⚡ Acción') {
+      if (!String(hd.getRange(1,15).getValue()).includes('Acción')) {
         hd.getRange(1,15).setValue('⚡ Acción').setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
       }
     }
-    hd.getRange(2,13,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+    // Validaciones usando COL_DER para que siempre apunten a la columna correcta
+    hd.getRange(2, COL_DER.ESTADO, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
-    hd.getRange(2,15,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+    hd.getRange(2, 15, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
-    hd.setColumnWidth(3,180).setColumnWidth(15,200);
+    hd.setColumnWidth(COL_DER.NOMBRE, 180).setColumnWidth(15, 200);
   }
 
   // ── Sesiones ─────────────────────────────────────────────────────────────
@@ -4593,15 +4775,26 @@ function instalarFuentesExternas(ss) {
   hf.appendRow(['Nombre','Spreadsheet_ID','Nombre_Hoja','Activo','Última_Sync','Notas']);
   hf.getRange(1,1,1,6).setBackground('#006064').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
   hf.setFrozenRows(1);
-  hf.setColumnWidth(1,160).setColumnWidth(2,320).setColumnWidth(3,140).setColumnWidth(4,80).setColumnWidth(5,140).setColumnWidth(6,220);
-  // Fila de ejemplo con DP_Empleabilidad
+  hf.setColumnWidth(1,160).setColumnWidth(2,380).setColumnWidth(3,150).setColumnWidth(4,80).setColumnWidth(5,160).setColumnWidth(6,280);
+
+  // Fila 2: DP_Empleabilidad (fuente principal)
   hf.appendRow(['DP_Empleabilidad', DP_EMPLEABILIDAD.SPREADSHEET_ID, DP_EMPLEABILIDAD.HOJA, 'SÍ', '', 'Fuente principal de derivados']);
+  hf.getRange(2,1,1,6).setBackground('#e0f7fa');
+
+  // Fila 3 y 4: plantillas para AYB y TECH — el usuario solo pone el Spreadsheet_ID
+  hf.appendRow(['AYB','← PEGA AQUÍ EL ID DEL SPREADSHEET DE AYB','Paso a paso','NO','','Programa AYB — cambia NO a SÍ cuando tengas el ID']);
+  hf.getRange(3,1,1,6).setBackground('#fff8e1').setFontColor('#555');
+
+  hf.appendRow(['TECH','← PEGA AQUÍ EL ID DEL SPREADSHEET DE TECH','Paso a paso','NO','','Programa TECH — cambia NO a SÍ cuando tengas el ID']);
+  hf.getRange(4,1,1,6).setBackground('#e8f5e9').setFontColor('#555');
+
+  // Fila 5: instrucción general
+  hf.appendRow(['','','','','','⬆ Para activar: reemplaza el texto de la col B con el ID real del Google Sheet y cambia Activo a SÍ']);
+  hf.getRange(5,1,1,6).setFontColor('#9e9e9e').setFontStyle('italic');
+
+  // Validación dropdown Activo
   hf.getRange(2,4,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInList(['SÍ','NO'], true).build());
-  hf.getRange(2,1,1,6).setBackground('#e0f7fa');
-  // Instrucciones en fila 3
-  hf.appendRow(['← EJEMPLO — puedes editar','','','','','Agrega una fila por cada fuente externa que quieras importar']);
-  hf.getRange(3,1,1,6).setFontColor('#9e9e9e').setFontStyle('italic');
 }
 
 function leerFuentesExternas() {
@@ -4640,23 +4833,19 @@ function sincronizarTodo() {
     errores++;
   }
 
-  // 3. Otras fuentes externas (Fuentes_Externas sheet)
-  const fuentes = leerFuentesExternas();
-  const ss = SpreadsheetApp.getActive();
-  const hf = ss.getSheetByName('Fuentes_Externas');
-  fuentes.forEach(function(f, idx) {
-    // Saltar DP_Empleabilidad (ya importada arriba)
+  // 3. Todas las demás fuentes activas en Fuentes_Externas
+  leerFuentesExternas().forEach(function(f) {
     if (String(f.ssId).trim() === String(DP_EMPLEABILIDAD.SPREADSHEET_ID).trim()) return;
     try {
-      const extSS = SpreadsheetApp.openById(f.ssId);
-      const extH  = f.hoja ? extSS.getSheetByName(f.hoja) : extSS.getSheets()[0];
-      if (!extH) throw new Error('Hoja "'+f.hoja+'" no encontrada');
-      const filas = extH.getDataRange().getValues();
-      log.push('✅ '+f.nombre+': '+( filas.length - 1 )+' registros leídos (integración pendiente de mapeo)');
-      // Actualizar timestamp en Fuentes_Externas
-      if (hf) hf.getRange(idx+2, 5).setValue(new Date());
+      const res = importarFuenteGenerica(f.ssId, f.hoja, f.nombre, true);
+      if (res.error) {
+        log.push('⚠️ ' + f.nombre + ': ' + res.error);
+        errores++;
+      } else {
+        log.push('✅ ' + f.nombre + ': ' + res.nuevos + ' nuevo(s), ' + res.omitidos + ' ya existían');
+      }
     } catch(e) {
-      log.push('⚠️ '+f.nombre+': ' + e.message);
+      log.push('⚠️ ' + f.nombre + ': ' + e.message);
       errores++;
     }
   });
