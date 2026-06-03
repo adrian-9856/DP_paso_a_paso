@@ -4913,78 +4913,98 @@ function actualizarSistema() {
   const ss = SpreadsheetApp.getActive();
   const log = [];
 
-  // ── 1. Derivados: corregir headers ───────────────────────────────────────
+  // ── 1. Derivados: forzar headers correctos siempre ────────────────────────
   try {
     const hDer = ss.getSheetByName('Derivados');
     if (hDer) {
-      const h1 = String(hDer.getRange(1,1).getValue());
-      if (h1 === 'Fecha_Import' || (!h1.includes('ID') && !h1.includes('id'))) {
-        hDer.getRange(1, 1, 1, 14).setValues([[
-          'ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
-          'Educación','Formación','Cohorte','Notas','Estado Derivado','Fuente','Fecha Importación'
-        ]]);
-        if (!String(hDer.getRange(1,15).getValue()).includes('Acción'))
-          hDer.getRange(1,15).setValue('⚡ Acción');
-        hDer.getRange(1,1,1,15).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
-        log.push('✅ Derivados: columnas alineadas (ID en columna A)');
-      } else {
-        log.push('✔ Derivados: ya estaba correcto');
-      }
+      const hdrsNuevos = ['ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
+                          'Educación','Formación','Cohorte','Notas','Estado Derivado','Fuente','Fecha Importación'];
+      hDer.getRange(1, 1, 1, 14).setValues([hdrsNuevos]);
+      if (!String(hDer.getRange(1,15).getValue()).includes('Acción'))
+        hDer.getRange(1,15).setValue('⚡ Acción');
+      hDer.getRange(1,1,1,15).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+      // Dropdowns
+      hDer.getRange(2, 12, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
+      hDer.getRange(2, 15, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
+      log.push('✅ Derivados: headers y dropdowns actualizados');
+    } else {
+      log.push('⚠️ Derivados: hoja no encontrada');
     }
   } catch(e) { log.push('⚠️ Derivados: ' + e.message); }
 
-  // ── 2. Derivaciones: mover Estado al final + dropdown Retiradx/Completado ─
+  // ── 2. Derivaciones: estructura + limpiar valores viejos de Estado ─────────
   try {
     const hDeriv = ss.getSheetByName('Derivaciones');
     if (hDeriv && hDeriv.getLastRow() >= 1) {
       const nCols   = Math.max(hDeriv.getLastColumn(), 14);
       const allRows = hDeriv.getRange(1, 1, hDeriv.getLastRow(), nCols).getValues();
       const hdrs    = allRows[0];
-      const estadoEnCol7 = String(hdrs[6]).toLowerCase().includes('estado');
 
-      if (estadoEnCol7) {
+      // Si Estado todavía está en col 7, reorganizar columnas
+      if (String(hdrs[6]).toLowerCase().includes('estado')) {
         const nuevos = allRows.map(function(r, i) {
           if (i === 0) return ['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo',
                                'Responsable','Fecha_Seguimiento','Notas','Prioridad',
                                'Sesion_Relacionada','Fecha_Cierre','Estado'];
+          // Estado (índice 6) va al final; Resultado (índice 13) se descarta
           return [r[0],r[1],r[2],r[3],r[4],r[5],r[7],r[8],r[9],r[10],r[11],r[12],r[6]];
         });
-        hDeriv.getRange(1, 1, hDeriv.getLastRow(), 14).clearContent();
+        hDeriv.getRange(1, 1, hDeriv.getLastRow(), nCols).clearContent();
         hDeriv.getRange(1, 1, nuevos.length, 13).setValues(nuevos);
         hDeriv.getRange(1,1,1,13).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
-        log.push('✅ Derivaciones: Estado movido a columna 13 (' + (nuevos.length-1) + ' filas migradas)');
+        log.push('✅ Derivaciones: Estado movido a col 13 (' + (nuevos.length-1) + ' filas reorganizadas)');
       } else {
-        log.push('✔ Derivaciones: estructura ya correcta');
+        // Header ya correcto: asegurar header de fila 1
+        hDeriv.getRange(1, 1, 1, 13).setValues([[
+          'Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo',
+          'Responsable','Fecha_Seguimiento','Notas','Prioridad',
+          'Sesion_Relacionada','Fecha_Cierre','Estado'
+        ]]);
+        hDeriv.getRange(1,1,1,13).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
       }
 
-      // Actualizar dropdown Estado: solo Retiradx y Completado
-      hDeriv.getRange(2, 13, 500, 1).setDataValidation(
-        SpreadsheetApp.newDataValidation()
-          .requireValueInList(['Retiradx','Completado'], true)
-          .setAllowInvalid(true).build()
-      );
-      hDeriv.getRange(2, 10, 500, 1).setDataValidation(
-        SpreadsheetApp.newDataValidation()
-          .requireValueInList(['URGENTE','ALTA','MEDIA','SUGERIDA'], true).build()
-      );
-      log.push('✅ Derivaciones: dropdown Estado → solo Retiradx / Completado');
+      // LIMPIAR VALORES VIEJOS: cualquier Estado que no sea Retiradx ni Completado → vacío
+      if (hDeriv.getLastRow() > 1) {
+        const estadoVals = hDeriv.getRange(2, 13, hDeriv.getLastRow()-1, 1).getValues();
+        const validos = new Set(['Retiradx','Completado']);
+        let limpiados = 0;
+        const nuevosEst = estadoVals.map(function(r) {
+          if (r[0] && !validos.has(String(r[0]))) { limpiados++; return ['']; }
+          return r;
+        });
+        hDeriv.getRange(2, 13, nuevosEst.length, 1).setValues(nuevosEst);
+        log.push('✅ Derivaciones: ' + limpiados + ' valor(es) de Estado antiguo(s) limpiados → vacío');
+      }
+
+      // Aplicar dropdown: solo Retiradx / Completado
+      hDeriv.getRange(2, 13, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Retiradx','Completado'], true).setAllowInvalid(true).build());
+      hDeriv.getRange(2, 10, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['URGENTE','ALTA','MEDIA','SUGERIDA'], true).build());
+      // Limpiar validación de col 14 (Resultado ya no existe)
+      try { hDeriv.getRange(2, 14, 500, 1).clearDataValidations(); } catch(e2) {}
+      log.push('✅ Derivaciones: dropdown Estado → Retiradx / Completado');
+
+    } else {
+      log.push('⚠️ Derivaciones: hoja no encontrada');
     }
   } catch(e) { log.push('⚠️ Derivaciones: ' + e.message); }
 
-  // ── 3. Sesiones: limpiar duplicados en silencio ──────────────────────────
+  // ── 3. Sesiones: limpiar duplicados ────────────────────────────────────────
   try {
     const hSes = ss.getSheetByName('Sesiones');
     if (hSes && hSes.getLastRow() > 2) {
-      const datos   = hSes.getRange(2, 1, hSes.getLastRow()-1, 7).getValues();
-      const tz      = Session.getScriptTimeZone();
-      const vistos  = new Set();
+      const datos  = hSes.getRange(2, 1, hSes.getLastRow()-1, 7).getValues();
+      const tz     = Session.getScriptTimeZone();
+      const vistos = new Set();
       const eliminar = [];
       datos.forEach(function(r, i) {
-        const fechaStr = r[0] instanceof Date
+        const f = r[0] instanceof Date
           ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd') : String(r[0]).slice(0,10);
-        const clave = String(r[1]).trim() + '|' + fechaStr + '|' + String(r[3]).trim();
-        if (vistos.has(clave)) eliminar.push(i + 2);
-        else vistos.add(clave);
+        const k = String(r[1]).trim() + '|' + f + '|' + String(r[3]).trim();
+        if (vistos.has(k)) eliminar.push(i + 2); else vistos.add(k);
       });
       if (eliminar.length > 0) {
         eliminar.reverse().forEach(function(n) { hSes.deleteRow(n); });
@@ -4992,31 +5012,18 @@ function actualizarSistema() {
       } else {
         log.push('✔ Sesiones: sin duplicados');
       }
+    } else {
+      log.push('✔ Sesiones: sin datos suficientes para revisar');
     }
   } catch(e) { log.push('⚠️ Sesiones: ' + e.message); }
 
-  // ── 4. Derivados: actualizar dropdown ⚡ Acción ─────────────────────────
-  try {
-    const hDer = ss.getSheetByName('Derivados');
-    if (hDer) {
-      hDer.getRange(2, COL_DER.ESTADO, 500, 1).setDataValidation(
-        SpreadsheetApp.newDataValidation()
-          .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build()
-      );
-      hDer.getRange(2, 15, 500, 1).setDataValidation(
-        SpreadsheetApp.newDataValidation()
-          .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build()
-      );
-      log.push('✅ Derivados: dropdowns actualizados');
-    }
-  } catch(e) { log.push('⚠️ Derivados dropdown: ' + e.message); }
-
-  // ── 5. Limpiar caché ────────────────────────────────────────────────────
+  // ── 4. Limpiar caché ───────────────────────────────────────────────────────
   try { CacheService.getScriptCache().removeAll(['p_maestro']); } catch(e) {}
+  SpreadsheetApp.flush();
 
   ui.alert(
     '✅ Sistema actualizado',
-    log.join('\n') + '\n\n🔒 No se eliminó ningún dato de participantes.',
+    log.join('\n') + '\n\n🔒 No se eliminaron datos de participantes.',
     ui.ButtonSet.OK
   );
 }
