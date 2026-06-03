@@ -38,12 +38,13 @@ const DP_EMPLEABILIDAD = {
 };
 
 // TECH — mapa de columnas fijo (0-based)
-// A=Fecha Entrevista | B=Hora | C=blank | D=Creamos ID | E=DPI | F=Nombre Completo
-// G=Género | H=Edad | I=Teléfono | J=Nivel Educativo | K=Zona | L=Entrevistador
-// M=Calificación | N=Observaciones | O=Estado
+// La hoja NO tiene columna "Creamos ID"; el DPI se usa como identificador.
+// A=Fecha Entrevista | B=Hora | C=blank | D=DPI | E=Nombre Completo
+// F=Género | G=Edad | H=Teléfono | I=Nivel Educativo | J=Zona | K=Entrevistador
+// L=Calificación | M=Observaciones | N=Estado
 const TECH_MAPA_COLS = {
-  FECHA:0, ID:3, DPI:4, NOMBRE:5, GENERO:6, EDAD:7,
-  TELEFONO:8, EDUCACION:9, NOTA:12, ACTIVO:14,
+  FECHA:0, ID:3, DPI:3, NOMBRE:4, GENERO:5, EDAD:6,
+  TELEFONO:7, EDUCACION:8, NOTA:11, ACTIVO:13,
   FORMACION:-1, COHORTE:-1, EMAIL:-1
 };
 
