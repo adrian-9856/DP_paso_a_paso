@@ -43,7 +43,7 @@ const DP_EMPLEABILIDAD = {
 // F=Género | G=Edad | H=Teléfono | I=Nivel Educativo | J=Zona | K=Entrevistador
 // L=Calificación | M=Observaciones | N=Estado
 const TECH_MAPA_COLS = {
-  FECHA:0, ID:3, DPI:3, NOMBRE:4, GENERO:5, EDAD:6,
+  FECHA:0, ID:-1, DPI:3, NOMBRE:4, GENERO:5, EDAD:6,
   TELEFONO:7, EDUCACION:8, NOTA:11, ACTIVO:13,
   FORMACION:-1, COHORTE:-1, EMAIL:-1
 };
