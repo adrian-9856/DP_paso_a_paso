@@ -4998,26 +4998,7 @@ function actualizarSistema() {
       const vacias = eliminarFilasVacias(hDer, COL_DER.ID, COL_DER.NOMBRE);
       if (vacias) log.push('✅ Derivados: ' + vacias + ' fila(s) vacía(s) eliminada(s)');
 
-      // 2c. Filas cuyo ID ya existe en Maestro (fueron importados)
-      if (hDer.getLastRow() > 1) {
-        const hMae = ss.getSheetByName('Maestro');
-        const idsEnMaestro = new Set();
-        if (hMae && hMae.getLastRow() > 1) {
-          hMae.getRange(2, CONFIG.COL.ID, hMae.getLastRow()-1, 1).getValues()
-            .forEach(function(r) { if (r[0]) idsEnMaestro.add(String(r[0]).trim()); });
-        }
-        if (idsEnMaestro.size > 0) {
-          const idsD = hDer.getRange(2, COL_DER.ID, hDer.getLastRow()-1, 1).getValues();
-          const yaImp = [];
-          idsD.forEach(function(r, i) {
-            if (r[0] && idsEnMaestro.has(String(r[0]).trim())) yaImp.push(i + 2);
-          });
-          yaImp.reverse().forEach(function(n) { hDer.deleteRow(n); });
-          if (yaImp.length) log.push('✅ Derivados: ' + yaImp.length + ' ya importado(s) a Maestro → eliminado(s)');
-        }
-      }
-
-      // 2d. Duplicados de ID en Derivados (mantener primera)
+      // 2c. Duplicados de ID en Derivados (mantener primera)
       if (hDer.getLastRow() > 1) {
         const idsD2 = hDer.getRange(2, COL_DER.ID, hDer.getLastRow()-1, 1).getValues();
         const vistosD = new Set();
