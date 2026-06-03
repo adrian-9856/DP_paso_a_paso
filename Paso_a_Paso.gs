@@ -421,7 +421,7 @@ function importarDPADerivados(silencioso) {
       const hdrs = ['ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
                     'Educación','Formación','Cohorte','Notas','Estado Derivado','Origen','Fecha Importación'];
       hDer.getRange(1,1,1,hdrs.length).setValues([hdrs])
-        .setFontWeight('bold').setBackground('#37474f').setFontColor('#fff');
+        .setFontWeight('bold').setBackground('#880e4f').setFontColor('#fff');
       hDer.setFrozenRows(1);
       [200,110,200,110,60,90,100,130,150,100,200,130,120,130].forEach((w,i) => hDer.setColumnWidth(i+1,w));
     }
@@ -438,12 +438,8 @@ function importarDPADerivados(silencioso) {
       return;
     }
 
-    // IDs ya en Derivados Y ya en Maestro → evitar duplicados
+    // Solo verificar duplicados dentro de Derivados (Maestro es independiente)
     const idsExist = new Set();
-    const maestro  = ss.getSheetByName(CONFIG.HOJA);
-    if (maestro && maestro.getLastRow() > 1)
-      maestro.getRange(2,CONFIG.COL.ID,maestro.getLastRow()-1,1).getValues()
-        .forEach(r => { if(r[0]) idsExist.add(String(r[0]).trim()); });
     if (hDer.getLastRow() > 1)
       hDer.getRange(2,COL_DER.ID,hDer.getLastRow()-1,1).getValues()
         .forEach(r => { if(r[0]) idsExist.add(String(r[0]).trim()); });
@@ -599,12 +595,8 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso) {
     return { nuevos:0, omitidos:0, error: 'Sin columna Nombre' };
   }
 
-  // IDs ya existentes (Derivados + Maestro) para evitar duplicados
+  // Solo verificar duplicados dentro de Derivados (Maestro es independiente)
   const idsExist = new Set();
-  const maestro  = ss.getSheetByName(CONFIG.HOJA);
-  if (maestro && maestro.getLastRow() > 1)
-    maestro.getRange(2, CONFIG.COL.ID, maestro.getLastRow()-1, 1).getValues()
-      .forEach(r => { if (r[0]) idsExist.add(String(r[0]).trim()); });
   if (hDer.getLastRow() > 1)
     hDer.getRange(2, COL_DER.ID, hDer.getLastRow()-1, 1).getValues()
       .forEach(r => { if (r[0]) idsExist.add(String(r[0]).trim()); });
@@ -4704,7 +4696,10 @@ function reinstalarCompleto() {
       hd.setFrozenRows(1);
       creadas.push('Derivados');
     } else {
-      // Asegurar columna Acción si no existe
+      // Forzar headers correctos (por si están desordenados) + columna Acción
+      hd.getRange(1,1,1,14).setValues([['ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
+        'Educación','Formación','Cohorte','Notas','Estado Derivado','Fuente','Fecha Importación']]);
+      hd.getRange(1,1,1,14).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
       if (!String(hd.getRange(1,15).getValue()).includes('Acción')) {
         hd.getRange(1,15).setValue('⚡ Acción').setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
       }
