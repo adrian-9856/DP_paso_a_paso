@@ -619,10 +619,46 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso, mapa
   const tz     = Session.getScriptTimeZone();
   const prefix = nombreFuente.replace(/[^A-Za-z0-9]/g,'').substring(0,3).toUpperCase();
   const nuevas = [];
+  let actualizados = 0;
+
+  // Pre-cargar datos de Derivados para actualizar estados existentes (solo con mapa fijo)
+  const derDataPorDPI = {};  // dpi → rowIndex (2-based)
+  if (mapaColsExplicito && C.DPI >= 0 && hDer.getLastRow() > 1) {
+    hDer.getRange(2, 1, hDer.getLastRow()-1, NCOLS_DER).getValues().forEach(function(r, i) {
+      const d = String(r[COL_DER.DPI-1] || '').trim();
+      if (d) derDataPorDPI[d] = i + 2;
+    });
+  }
+
+  const INACTIVOS = new Set(['inactivo','inactiva','no apto','no apta','rechazado','rechazada',
+                             'cancelado','cancelada','retirado','retirada','no','false','0','baja']);
 
   todasFilas.slice(1).forEach(fila => {
     const nombre = String(C.NOMBRE >= 0 ? fila[C.NOMBRE] : '').trim();
     if (!nombre) return;
+
+    // Construir Estado Derivado:
+    // Con mapa fijo (ej. TECH): usar el valor real del Estado de la fuente
+    // Con auto-detección: binario activo/inactivo
+    const activoRaw = String(C.ACTIVO >= 0 ? fila[C.ACTIVO] : '').toLowerCase().trim();
+    let estadoDerivado;
+    if (mapaColsExplicito && C.ACTIVO >= 0) {
+      const estadoOrig = String(fila[C.ACTIVO] || '').trim();
+      estadoDerivado = INACTIVOS.has(activoRaw) ? 'Inactivo' : (estadoOrig || 'Pendiente formulario');
+    } else {
+      estadoDerivado = !INACTIVOS.has(activoRaw) ? 'Pendiente formulario' : 'Inactivo';
+    }
+
+    const fecha = C.FECHA >= 0 && fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
+    const dpi   = String(C.DPI >= 0 ? fila[C.DPI] : '').trim();
+
+    // Si la persona ya existe en Derivados (mismo DPI), actualizar su Estado Derivado
+    if (mapaColsExplicito && dpi && derDataPorDPI[dpi] !== undefined) {
+      const rowN = derDataPorDPI[dpi];
+      hDer.getRange(rowN, COL_DER.ESTADO, 1, 1).setValue(estadoDerivado);
+      actualizados++;
+      return;
+    }
 
     // Usar ID de la fuente o generar uno con prefijo de la fuente
     let id = String(C.ID >= 0 ? fila[C.ID] : '').trim();
@@ -631,19 +667,12 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso, mapa
     if (idsExist.has(id)) return;
     idsExist.add(id);
 
-    const activoRaw = String(C.ACTIVO >= 0 ? fila[C.ACTIVO] : '').toLowerCase().trim();
-    // Inactivo solo si el valor dice EXPLÍCITAMENTE inactivo/rechazado; cualquier otro valor = activo
-    const INACTIVOS = new Set(['inactivo','inactiva','no apto','no apta','rechazado','rechazada',
-                               'cancelado','cancelada','retirado','retirada','no','false','0','baja']);
-    const activo = !INACTIVOS.has(activoRaw);
-    const fecha     = C.FECHA >= 0 && fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
-
     // Construir fila en el orden de COL_DER (14 columnas)
     nuevas.push([
       id,                                                                     // 1 ID
       fecha,                                                                  // 2 Fecha Orig.
       nombre,                                                                 // 3 Nombre
-      String(C.DPI       >= 0 ? fila[C.DPI]       : '').trim(),              // 4 DPI
+      dpi,                                                                    // 4 DPI
       C.EDAD      >= 0 ? (fila[C.EDAD] || '') : '',                          // 5 Edad
       String(C.GENERO    >= 0 ? fila[C.GENERO]    : '').trim(),              // 6 Género
       String(C.TELEFONO  >= 0 ? fila[C.TELEFONO]  : '').trim(),              // 7 Teléfono
@@ -651,7 +680,7 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso, mapa
       String(C.FORMACION >= 0 ? fila[C.FORMACION] : '').trim(),              // 9 Formación
       String(C.COHORTE   >= 0 ? fila[C.COHORTE]   : '').trim(),              // 10 Cohorte
       String(C.NOTA      >= 0 ? fila[C.NOTA]       : '').trim(),              // 11 Notas
-      activo ? 'Pendiente formulario' : 'Inactivo',                          // 12 Estado Derivado
+      estadoDerivado,                                                         // 12 Estado Derivado
       nombreFuente,                                                           // 13 Fuente
       hoy                                                                     // 14 Fecha Importación
     ]);
@@ -678,7 +707,7 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso, mapa
     } catch(e) {}
   }
 
-  return { nuevos: nuevas.length, omitidos: todasFilas.length - 1 - nuevas.length, error: null };
+  return { nuevos: nuevas.length, actualizados: actualizados, omitidos: todasFilas.length - 1 - nuevas.length - actualizados, error: null };
 }
 
 /** Abre la hoja Derivados directamente */
@@ -4722,7 +4751,7 @@ function reinstalarCompleto() {
     }
     // Validaciones usando COL_DER para que siempre apunten a la columna correcta
     hd.getRange(2, COL_DER.ESTADO, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
+      .requireValueInList(['Pendiente formulario','Pre-Inscritxs','Inscritxs','Formulario enviado','Completó formulario','Inactivo','Rechazado'], true).setAllowInvalid(true).build());
     hd.getRange(2, 15, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
     hd.setColumnWidth(COL_DER.NOMBRE, 180).setColumnWidth(15, 200);
@@ -4908,7 +4937,9 @@ function sincronizarTodo() {
         log.push('⚠️ ' + f.nombre + ': ' + res.error);
         errores++;
       } else {
-        log.push('✅ ' + f.nombre + ': ' + res.nuevos + ' nuevo(s), ' + res.omitidos + ' ya existían');
+        let msg = '✅ ' + f.nombre + ': ' + res.nuevos + ' nuevo(s)';
+        if (res.actualizados) msg += ', ' + res.actualizados + ' etapa(s) actualizada(s)';
+        log.push(msg);
       }
     } catch(e) {
       log.push('⚠️ ' + f.nombre + ': ' + e.message);
