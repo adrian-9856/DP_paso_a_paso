@@ -140,6 +140,7 @@ function onOpen() {
       // ── Configuración & Setup ─────────────────────────────────────────
       .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
       .addItem('🔧 Migrar estructura de datos',       'migrarEstructura')
+      .addItem('🧹 Limpiar sesiones duplicadas',      'limpiarSesionesDuplicadas')
       .addItem('⚙️ Configuración',                   'abrirConfiguracion')
       .addSeparator()
       // ── Zona de peligro ───────────────────────────────────────────────
@@ -3270,9 +3271,19 @@ function guardarSes(pid,pnom){
   var t=document.getElementById('st').value;
   var n=document.getElementById('sn').value;
   if(!f||!t){alert('Completa fecha y tipo');return;}
-  var ov=document.getElementById('sesOv');if(ov)ov.remove();
+  // Deshabilitar botón inmediatamente para evitar doble envío
+  var btn=document.querySelector('.ses-ok');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Guardando…';}
+  var ov=document.getElementById('sesOv');
   google.script.run
-    .withFailureHandler(function(e){alert('❌ Error: '+e.message);})
+    .withSuccessHandler(function(res){
+      if(ov)ov.remove();
+      if(res&&res.duplicado){alert('⚠️ Esta sesión ya estaba registrada (duplicado ignorado).');}
+    })
+    .withFailureHandler(function(e){
+      if(btn){btn.disabled=false;btn.textContent='✅ Guardar Sesión';}
+      alert('❌ Error: '+e.message);
+    })
     .guardarSesionInterna(pid,pnom,f,t,n);
 }
 
@@ -3314,10 +3325,28 @@ function guardarSesionInterna(pid, pnom, fecha, tipo, notas) {
       hSes.setColumnWidth(1,100); hSes.setColumnWidth(2,120); hSes.setColumnWidth(3,180);
       hSes.setColumnWidth(4,160); hSes.setColumnWidth(5,280);
     }
+
+    // Verificar duplicado: misma ID + misma fecha + mismo tipo registrado en los últimos 60 segundos
+    if (hSes.getLastRow() > 1) {
+      const ahora    = Date.now();
+      const fechaNorm = String(fecha).trim();
+      const recientes = hSes.getRange(2, 1, hSes.getLastRow()-1, 7).getValues()
+        .filter(r => {
+          const mismoId   = String(r[1]).trim() === String(pid).trim();
+          const mismoTipo = String(r[3]).trim() === String(tipo).trim();
+          const mismaFecha = r[0] instanceof Date
+            ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd') === fechaNorm
+            : String(r[0]).slice(0,10) === fechaNorm;
+          const reciente  = r[6] instanceof Date && (ahora - r[6].getTime()) < 60000;
+          return mismoId && mismoTipo && mismaFecha && reciente;
+        });
+      if (recientes.length > 0) return { duplicado: true };
+    }
+
     const orientador = Session.getEffectiveUser().getEmail();
     hSes.appendRow([new Date(fecha), pid, pnom, tipo, notas||'', orientador, new Date()]);
-    // Limpiar caché para refrescar datos del participante si es necesario
     CacheService.getScriptCache().remove('p_maestro');
+    return { duplicado: false };
   } catch(e) {
     logError('guardarSesionInterna', e);
     throw e;
@@ -4588,14 +4617,15 @@ function abrirSesionDesdeHoja(pid, pnom) {
     '<option>Orientación Laboral</option><option>Mentoría Individual</option><option>Seguimiento</option>'+
     '<option>Taller/Actividad</option><option>Derivación</option><option>Otro</option></select>'+
     '<label>Notas (opcional)</label><textarea id="sn" placeholder="Resumen de la sesión..."></textarea>'+
-    '<button onclick="guardar()">✅ Guardar Sesión</button>'+
+    '<button id="btnG" onclick="guardar()">✅ Guardar Sesión</button>'+
     '<script>function guardar(){'+
     'var f=document.getElementById("sf").value;'+
     'var t=document.getElementById("st").value;'+
     'var n=document.getElementById("sn").value;'+
     'if(!f||!t){alert("Completa la fecha y tipo");return;}'+
-    'google.script.run.withSuccessHandler(function(){google.script.host.close();})'+
-    '.withFailureHandler(function(e){alert("Error: "+e.message);})'+
+    'var b=document.getElementById("btnG");b.disabled=true;b.textContent="⏳ Guardando…";'+
+    'google.script.run.withSuccessHandler(function(r){if(r&&r.duplicado){alert("⚠️ Sesión ya registrada (duplicado ignorado).");}google.script.host.close();})'+
+    '.withFailureHandler(function(e){b.disabled=false;b.textContent="✅ Guardar Sesión";alert("Error: "+e.message);})'+
     '.guardarSesionInterna("'+pid+'","'+pnom+'",f,t,n);}'+
     '<\/script>'+
     '</body></html>'
@@ -4870,6 +4900,60 @@ function sincronizarTodo() {
     log.join('\n') + '\n\n🕐 ' + new Date().toLocaleString(),
     ui.ButtonSet.OK
   );
+}
+
+// ============================================================================
+// LIMPIAR SESIONES DUPLICADAS
+// ============================================================================
+
+/**
+ * Elimina filas duplicadas de la hoja Sesiones.
+ * Criterio de duplicado: mismo ID_Participante + misma Fecha + mismo Tipo_Sesion.
+ * Conserva la primera ocurrencia y borra las repetidas.
+ */
+function limpiarSesionesDuplicadas() {
+  const ui  = SpreadsheetApp.getUi();
+  const ss  = SpreadsheetApp.getActive();
+  const hSes = ss.getSheetByName('Sesiones');
+  if (!hSes || hSes.getLastRow() < 3) {
+    ui.alert('ℹ️ No hay suficientes filas en Sesiones para revisar duplicados.');
+    return;
+  }
+
+  const datos = hSes.getRange(2, 1, hSes.getLastRow()-1, 7).getValues();
+  const tz    = Session.getScriptTimeZone();
+  const vistos = new Set();
+  const filasAEliminar = []; // índices 0-based sobre el array datos
+
+  datos.forEach(function(r, i) {
+    const fechaStr = r[0] instanceof Date
+      ? Utilities.formatDate(r[0], tz, 'yyyy-MM-dd')
+      : String(r[0]).slice(0,10);
+    const clave = String(r[1]).trim() + '|' + fechaStr + '|' + String(r[3]).trim();
+    if (vistos.has(clave)) {
+      filasAEliminar.push(i + 2); // fila real en la hoja (1-based, +1 por header)
+    } else {
+      vistos.add(clave);
+    }
+  });
+
+  if (filasAEliminar.length === 0) {
+    ui.alert('✅ No se encontraron duplicados en Sesiones.');
+    return;
+  }
+
+  const conf = ui.alert(
+    '⚠️ Duplicados encontrados',
+    'Se encontraron ' + filasAEliminar.length + ' fila(s) duplicada(s) en Sesiones.\n\n' +
+    '¿Eliminarlas? (se conserva la primera ocurrencia de cada sesión)',
+    ui.ButtonSet.YES_NO
+  );
+  if (conf !== ui.Button.YES) return;
+
+  // Eliminar de abajo hacia arriba para no desplazar índices
+  filasAEliminar.reverse().forEach(function(n) { hSes.deleteRow(n); });
+
+  ui.alert('✅ ' + filasAEliminar.length + ' duplicado(s) eliminado(s) de Sesiones.');
 }
 
 // ============================================================================
