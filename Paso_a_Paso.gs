@@ -37,6 +37,16 @@ const DP_EMPLEABILIDAD = {
        EDUCACION:6, DPI:7, FORMACION:8, COHORTE:9, NOTA:10, ACTIVO:11 }
 };
 
+// TECH — mapa de columnas fijo (0-based)
+// A=Fecha Entrevista | B=Hora | C=blank | D=Creamos ID | E=DPI | F=Nombre Completo
+// G=Género | H=Edad | I=Teléfono | J=Nivel Educativo | K=Zona | L=Entrevistador
+// M=Calificación | N=Observaciones | O=Estado
+const TECH_MAPA_COLS = {
+  FECHA:0, ID:3, DPI:4, NOMBRE:5, GENERO:6, EDAD:7,
+  TELEFONO:8, EDUCACION:9, NOTA:12, ACTIVO:14,
+  FORMACION:-1, COHORTE:-1, EMAIL:-1
+};
+
 const VERSION_SISTEMA = 'v8.7-2026-05-19';
 
 const FLUJO_ESTADOS = {
@@ -549,10 +559,10 @@ function autoDetectarCols(headers) {
 
 /**
  * Importa desde cualquier Google Sheet externo → hoja Derivados.
- * Auto-detecta columnas por nombre de encabezado.
+ * Si mapaColsExplicito es null, auto-detecta por nombre de encabezado.
  * Retorna {nuevos, omitidos, error}.
  */
-function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso) {
+function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso, mapaColsExplicito) {
   const ss = SpreadsheetApp.getActive();
 
   // Garantizar que Derivados existe con headers correctos
@@ -588,7 +598,7 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso) {
   const lastCol    = Math.max(hSrc.getLastColumn(), 5);
   const todasFilas = hSrc.getRange(1, 1, hSrc.getLastRow(), lastCol).getValues();
   const headers    = todasFilas[0];
-  const C = autoDetectarCols(headers);
+  const C = mapaColsExplicito || autoDetectarCols(headers);
 
   if (C.NOMBRE < 0) {
     if (!silencioso) SpreadsheetApp.getUi().alert(
@@ -4890,7 +4900,9 @@ function sincronizarTodo() {
   leerFuentesExternas().forEach(function(f) {
     if (String(f.ssId).trim() === String(DP_EMPLEABILIDAD.SPREADSHEET_ID).trim()) return;
     try {
-      const res = importarFuenteGenerica(f.ssId, f.hoja, f.nombre, true);
+      // Usar mapa fijo para fuentes con estructura conocida
+      const mapaFijo = f.nombre.toUpperCase() === 'TECH' ? TECH_MAPA_COLS : null;
+      const res = importarFuenteGenerica(f.ssId, f.hoja, f.nombre, true, mapaFijo);
       if (res.error) {
         log.push('⚠️ ' + f.nombre + ': ' + res.error);
         errores++;
