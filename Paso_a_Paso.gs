@@ -529,18 +529,21 @@ function autoDetectarCols(headers) {
   };
   return {
     ID:        find('ID','CreamosID','Creamos ID','creamos_id','id_participante','codigo','Codigo','code','Carnet'),
-    FECHA:     find('Fecha','FechaIngreso','Fecha Ingreso','FechaRegistro','Fecha Registro','fecha_ingreso','Date','Fecha de registro'),
+    FECHA:     find('Fecha','FechaIngreso','Fecha Ingreso','FechaRegistro','Fecha Registro','fecha_ingreso','Date',
+                    'Fecha de registro','Fecha Entrevista','FechaEntrevista','Fecha de entrevista'),
     NOMBRE:    find('Nombre','NombreCompleto','Nombre Completo','Apellidos y Nombre','full name','Participante','nombre_completo'),
     DPI:       find('DPI','NumeroDPI','Numero DPI','numero_dpi','Cedula','Documento','DNI','CUI'),
     EDAD:      find('Edad','Age','Anos','Años','edad_participante'),
     GENERO:    find('Genero','Género','Sexo','Gender','genero_participante'),
     TELEFONO:  find('Telefono','Teléfono','Celular','Movil','Móvil','Phone','Tel','telefono_celular','numero_telefono'),
     EMAIL:     find('Email','Correo','Correo electronico','Correo Electrónico','E-mail','Mail','email_participante'),
-    EDUCACION: find('Educacion','Educación','Nivel academico','Nivel Académico','Escolaridad','UltimoGrado','Ultimo Grado','nivel_educativo'),
+    EDUCACION: find('Educacion','Educación','Nivel Educativo','NivelEducativo','Nivel academico','Nivel Académico',
+                    'Escolaridad','UltimoGrado','Ultimo Grado','nivel_educativo'),
     FORMACION: find('Formacion','Formación','Programa','TipodeCurso','Tipo de Curso','Curso','Capacitacion','Capacitación','nombre_curso','tipo_formacion'),
     COHORTE:   find('Cohorte','Grupo','Cohort','Generacion','Generación','Ciclo','cohorte_numero','numero_cohorte'),
-    NOTA:      find('Notas','Nota','Observaciones','Comentarios','Notes','observacion','nota_adicional'),
-    ACTIVO:    find('Activo','Active','Estado','Participando','Status','Inscrito','activo_yn','participando','Vigente'),
+    NOTA:      find('Notas','Nota','Observaciones','Observacion','Comentarios','Notes','observacion','nota_adicional',
+                    'Calificacion','Calificación','Calificacion entrevista'),
+    ACTIVO:    find('Activo','Active','Estado','Etapa','Participando','Status','Inscrito','activo_yn','participando','Vigente'),
   };
 }
 
@@ -618,8 +621,10 @@ function importarFuenteGenerica(ssId, nombreHoja, nombreFuente, silencioso) {
     idsExist.add(id);
 
     const activoRaw = String(C.ACTIVO >= 0 ? fila[C.ACTIVO] : '').toLowerCase().trim();
-    const activo    = activoRaw === '' ||
-      ['true','si','sí','1','activo','activa','yes','inscrito','inscrita','participando','vigente'].includes(activoRaw);
+    // Inactivo solo si el valor dice EXPLÍCITAMENTE inactivo/rechazado; cualquier otro valor = activo
+    const INACTIVOS = new Set(['inactivo','inactiva','no apto','no apta','rechazado','rechazada',
+                               'cancelado','cancelada','retirado','retirada','no','false','0','baja']);
+    const activo = !INACTIVOS.has(activoRaw);
     const fecha     = C.FECHA >= 0 && fila[C.FECHA] instanceof Date ? fila[C.FECHA] : hoy;
 
     // Construir fila en el orden de COL_DER (14 columnas)
@@ -4735,9 +4740,9 @@ function reinstalarCompleto() {
       hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250).setColumnWidth(9,200);
       creadas.push('Derivaciones');
     } else {
-      // Si el Estado estaba en col 7 (estructura antigua), migrar automáticamente
+      // Si Estado/Etapa estaba en col 7 (estructura antigua), migrar automáticamente
       const hdrs = hder.getRange(1,1,1,14).getValues()[0];
-      if (String(hdrs[6]).includes('Estado') && hder.getLastRow() > 1) {
+      if (/estado|etapa|stage/i.test(String(hdrs[6])) && hder.getLastRow() > 1) {
         const datos = hder.getRange(1, 1, hder.getLastRow(), 14).getValues();
         const nuevos = datos.map(function(r, i) {
           if (i === 0) return ['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo','Responsable','Fecha_Seguimiento','Notas','Prioridad','Sesion_Relacionada','Fecha_Cierre','Estado'];
@@ -4749,6 +4754,18 @@ function reinstalarCompleto() {
         hder.getRange(1, 14).clearContent();
       }
     }
+    // Limpiar valores de Estado que no sean Retiradx ni Completado → vacío
+    if (hder.getLastRow() > 1) {
+      const eVals = hder.getRange(2, 13, hder.getLastRow()-1, 1).getValues();
+      const validosEst = new Set(['Retiradx','Completado']);
+      const nuevosEst = eVals.map(function(r) {
+        return (r[0] && !validosEst.has(String(r[0]))) ? [''] : r;
+      });
+      hder.getRange(2, 13, nuevosEst.length, 1).setValues(nuevosEst);
+    }
+    // Limpiar col 14 (Resultado antigua)
+    try { hder.getRange(2, 14, 500, 1).clearContent().clearDataValidations(); } catch(e2) {}
+    try { hder.getRange(1, 14).clearContent(); } catch(e2) {}
     // Validaciones: Estado en col 13 (solo cierre), Prioridad en col 10
     hder.getRange(2, 13, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Retiradx','Completado'], true).setAllowInvalid(true).build());
@@ -5031,8 +5048,8 @@ function actualizarSistema() {
       const allRows = hDeriv.getRange(1, 1, hDeriv.getLastRow(), nCols).getValues();
       const hdrs    = allRows[0];
 
-      // 3a. Migrar si Estado todavía está en col 7
-      if (String(hdrs[6]).toLowerCase().includes('estado')) {
+      // 3a. Migrar si Estado/Etapa todavía está en col 7 (estructura antigua)
+      if (/estado|etapa|stage/i.test(String(hdrs[6]))) {
         const nuevos = allRows.map(function(r, i) {
           if (i === 0) return ['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo',
                                'Responsable','Fecha_Seguimiento','Notas','Prioridad',
