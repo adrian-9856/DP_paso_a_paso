@@ -139,7 +139,7 @@ function onOpen() {
       .addSeparator()
       // ── Configuración & Setup ─────────────────────────────────────────
       .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
-      .addItem('🔧 Actualizar Hoja Derivados',        'actualizarHojaDerivados')
+      .addItem('🔧 Migrar estructura de datos',       'migrarEstructura')
       .addItem('⚙️ Configuración',                   'abrirConfiguracion')
       .addSeparator()
       // ── Zona de peligro ───────────────────────────────────────────────
@@ -358,11 +358,12 @@ function sincronizarDesdeSheet(silencioso) {
       filasMaestro.push(row);
 
       if (formacion) {
+        // 13 cols: Fecha|ID|Nombre|Tipo|Destino|Motivo|Responsable|FechaSeg|Notas|Prioridad|SesionRel|FechaCierre|Estado
         filasDerivaciones.push([
           hoy, id, nombre, '💡 SUGERIDA',
           'Formación Técnica — ' + formacion,
           'Importado de DP_Empleabilidad. Formación: ' + formacion + (cohorte ? ' | Cohorte: ' + cohorte : ''),
-          'Pendiente', '', '', nota
+          '', '', nota, 'MEDIA', '', '', 'Pendiente'
         ]);
       }
     });
@@ -378,8 +379,8 @@ function sincronizarDesdeSheet(silencioso) {
       const deriv = ss.getSheetByName('Derivaciones');
       if (deriv) {
         const dr = deriv.getLastRow()+1;
-        deriv.getRange(dr, 1, filasDerivaciones.length, 10).setValues(filasDerivaciones);
-        deriv.getRange(dr, 1, filasDerivaciones.length, 10).setBackground('#e8f5e9');
+        deriv.getRange(dr, 1, filasDerivaciones.length, 13).setValues(filasDerivaciones);
+        deriv.getRange(dr, 1, filasDerivaciones.length, 13).setBackground('#e8f5e9');
         SpreadsheetApp.flush();
       }
     }
@@ -2504,10 +2505,10 @@ function actualizarAnalytics(ss) {
     // Derivaciones
     tit('DERIVACIONES');
     if (deriv && deriv.getLastRow() > 1) {
-      const dd = deriv.getRange(2, 1, deriv.getLastRow()-1, 10).getValues().filter(r => r[0]);
-      const urgentes    = dd.filter(r => r[3] === '🚨 URGENTE').length;
-      const pendientes  = dd.filter(r => r[6] === 'Pendiente').length;
-      const completadas = dd.filter(r => r[6] === 'Completado').length;
+      const dd = deriv.getRange(2, 1, deriv.getLastRow()-1, 13).getValues().filter(r => r[0]);
+      const urgentes    = dd.filter(r => r[9] === 'URGENTE' || String(r[3]).includes('URGENTE')).length;
+      const pendientes  = dd.filter(r => r[12] === 'Pendiente').length;
+      const completadas = dd.filter(r => r[12] === 'Completado').length;
       row2('Total derivaciones',   dd.length);
       row2('🚨 URGENTES',          urgentes,   urgentes  > 0 ? '#ffcdd2' : null, urgentes  > 0 ? '#c62828' : null);
       row2('⏳ Pendientes',         pendientes, pendientes> 0 ? '#fff9c4' : null, pendientes> 0 ? '#f57f17' : null);
@@ -2700,7 +2701,7 @@ function abrirPerfil(row) {
       fila('Género', p.genero) +
       fila('Teléfono', p.telefono) +
       fila('Zona', p.zona) +
-      fila('Email', p.email) +
+
       '<div style="font-size:9px;font-weight:700;color:#9e9e9e;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px;">📚 Perfil Socioeconómico</div>' +
       fila('Educación', p.educacion) +
       fila('Situación Laboral', p.laboral) +
@@ -2887,7 +2888,7 @@ function obtenerParticipantes() {
       genero:     String(r[M.GENERO-1]     || ''),
       telefono:   String(r[M.TELEFONO-1]   || ''),
       zona:       String(r[M.ZONA-1]       || ''),
-      email:      String(r[M.EMAIL-1]      || ''),
+
       educacion:  String(r[M.EDUCACION-1]  || ''),
       laboral:    String(r[M.LABORAL-1]    || ''),
       fortalezas: String(r[M.FORTALEZAS-1] || ''),
@@ -3192,7 +3193,6 @@ function toggleDetail(i,wrap,p){
     '<div class="drow"><span class="dl">Género</span><span class="dv">'+esc(p.genero)+'</span></div>'+
     '<div class="drow"><span class="dl">Teléfono</span><span class="dv">'+esc(p.telefono)+'</span></div>'+
     '<div class="drow"><span class="dl">Zona</span><span class="dv">'+esc(p.zona)+'</span></div>'+
-    '<div class="drow"><span class="dl">Email</span><span class="dv">'+esc(p.email)+'</span></div>'+
     '<div class="dsec">Perfil profesional</div>'+
     '<div class="drow"><span class="dl">Educación</span><span class="dv">'+esc(p.educacion)+'</span></div>'+
     '<div class="drow"><span class="dl">Situación laboral</span><span class="dv">'+esc(p.laboral)+'</span></div>'+
@@ -3345,16 +3345,15 @@ function obtenerHistorialParticipante(id) {
   try {
     const hDer = ss.getSheetByName('Derivaciones');
     if (hDer && hDer.getLastRow() > 1) {
-      resultado.derivaciones = hDer.getRange(2, 1, hDer.getLastRow()-1, 14).getValues()
+      resultado.derivaciones = hDer.getRange(2, 1, hDer.getLastRow()-1, 13).getValues()
         .filter(r => String(r[1]).trim() === String(id).trim())
         .map(r => ({
           fecha:    r[0] ? Utilities.formatDate(new Date(r[0]), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '—',
           tipo:     String(r[3] || ''),
           destino:  String(r[4] || ''),
           motivo:   String(r[5] || ''),
-          estado:   String(r[6] || ''),
-          prioridad:String(r[10] || ''),
-          resultado:String(r[13] || '')
+          prioridad:String(r[9]  || ''),
+          estado:   String(r[12] || '')
         }))
         .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
     }
@@ -3868,7 +3867,7 @@ function verDerivaciones() {
     if (!sheet) { SpreadsheetApp.getUi().alert('❌ Instala el sistema primero.'); return; }
     ss.setActiveSheet(sheet);
     const pend = sheet.getLastRow() > 1
-      ? sheet.getRange(2, 7, sheet.getLastRow()-1, 1).getValues().filter(r => r[0]==='Pendiente').length
+      ? sheet.getRange(2, 13, sheet.getLastRow()-1, 1).getValues().filter(r => r[0]==='Pendiente').length
       : 0;
     if (pend > 0) SpreadsheetApp.getUi().alert('📋 Derivaciones\n\n⚠️ Tienes ' + pend + ' derivación(es) PENDIENTE(S).\n\nCambia el Estado a "Completado" cuando las gestiones.');
   } catch(e) { SpreadsheetApp.getUi().alert('❌ Error: ' + e); }
@@ -3878,11 +3877,12 @@ function guardarDerivacion(id, nombre, tipo, destino, motivo, notas) {
   try {
     const sheet = SpreadsheetApp.getActive().getSheetByName('Derivaciones');
     if (!sheet) return;
-    sheet.appendRow([new Date(), id, nombre, tipo||'Manual', destino, motivo, 'Pendiente',
-                     Session.getEffectiveUser().getEmail(), '', notas||'']);
+    // 13 cols: Fecha|ID|Nombre|Tipo|Destino|Motivo|Responsable|FechaSeg|Notas|Prioridad|SesionRel|FechaCierre|Estado
+    sheet.appendRow([new Date(), id, nombre, tipo||'Manual', destino, motivo,
+                     Session.getEffectiveUser().getEmail(), '', notas||'', '', '', '', 'Pendiente']);
     const n     = sheet.getLastRow();
     const color = tipo && tipo.includes('URGENTE') ? '#ffcdd2' : tipo && tipo.includes('ALERTA') ? '#fff9c4' : '#e8f5e9';
-    sheet.getRange(n, 1, 1, 10).setBackground(color);
+    sheet.getRange(n, 1, 1, 13).setBackground(color);
   } catch(e) { logError('guardarDerivacion', e); }
 }
 
@@ -3899,10 +3899,10 @@ function registrarDerivacionesAutomaticas(ss, id, nombre, fila, M) {
     const hoy       = new Date();
 
     const add = (prioNivel, tipo, dest, motivo) => {
-      // Cols: Fecha, Creamos_ID, Nombre, Tipo, Destino, Motivo, Estado, Responsable, Fecha_Seguimiento, Notas, Prioridad, Sesion_Relacionada, Fecha_Cierre, Resultado
-      deriv.appendRow([hoy, id, nombre, tipo, dest, motivo, 'Pendiente', '', '', '', prioNivel, '', '', '']);
+      // 13 cols: Fecha|ID|Nombre|Tipo|Destino|Motivo|Responsable|FechaSeg|Notas|Prioridad|SesionRel|FechaCierre|Estado
+      deriv.appendRow([hoy, id, nombre, tipo, dest, motivo, '', '', '', prioNivel, '', '', 'Pendiente']);
       const c = prioNivel === 'URGENTE' ? '#ffcdd2' : prioNivel === 'ALTA' ? '#ffe0b2' : '#fff9c4';
-      deriv.getRange(deriv.getLastRow(), 1, 1, 14).setBackground(c);
+      deriv.getRange(deriv.getLastRow(), 1, 1, 13).setBackground(c);
     };
 
     if (perfil==='Perfil D' || prioridad==='CRÍTICO') {
@@ -4700,24 +4700,33 @@ function reinstalarCompleto() {
     let hder = ss.getSheetByName('Derivaciones');
     if (!hder) {
       hder = ss.insertSheet('Derivaciones');
-      hder.appendRow(['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo','Estado','Responsable','Fecha_Seguimiento','Notas','Prioridad','Sesion_Relacionada','Fecha_Cierre','Resultado']);
-      hder.getRange(1,1,1,14).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
+      // 13 cols: Fecha|ID|Nombre|Tipo|Destino|Motivo|Responsable|FechaSeg|Notas|Prioridad|SesionRel|FechaCierre|Estado
+      hder.appendRow(['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo',
+                      'Responsable','Fecha_Seguimiento','Notas','Prioridad','Sesion_Relacionada','Fecha_Cierre','Estado']);
+      hder.getRange(1,1,1,13).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
       hder.setFrozenRows(1);
-      hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250);
+      hder.setColumnWidth(3,180).setColumnWidth(5,200).setColumnWidth(6,250).setColumnWidth(9,200);
       creadas.push('Derivaciones');
     } else {
-      // Agregar columnas nuevas si faltan
-      const hdrs = hder.getRange(1,1,1,20).getValues()[0];
-      const nuevas = [['Prioridad',11],['Sesion_Relacionada',12],['Fecha_Cierre',13],['Resultado',14]];
-      nuevas.forEach(function([h,c]){ if (!hdrs.includes(h)) hder.getRange(1,c).setValue(h).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold'); });
+      // Si el Estado estaba en col 7 (estructura antigua), migrar automáticamente
+      const hdrs = hder.getRange(1,1,1,14).getValues()[0];
+      if (String(hdrs[6]).includes('Estado') && hder.getLastRow() > 1) {
+        const datos = hder.getRange(1, 1, hder.getLastRow(), 14).getValues();
+        const nuevos = datos.map(function(r, i) {
+          if (i === 0) return ['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo','Responsable','Fecha_Seguimiento','Notas','Prioridad','Sesion_Relacionada','Fecha_Cierre','Estado'];
+          return [r[0],r[1],r[2],r[3],r[4],r[5],r[7],r[8],r[9],r[10],r[11],r[12],r[6]];
+        });
+        hder.getRange(1, 1, nuevos.length, 13).setValues(nuevos);
+        // Limpiar columna 14 (Resultado antigua) sin borrar datos reales
+        if (hder.getLastRow() > 1) hder.getRange(2, 14, hder.getLastRow()-1, 1).clearContent();
+        hder.getRange(1, 14).clearContent();
+      }
     }
-    // Validaciones
-    hder.getRange(2,7,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Pendiente','Contactado','En proceso','Completado','Cancelado'], true).build());
-    hder.getRange(2,11,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
+    // Validaciones: Estado en col 13, Prioridad en col 10
+    hder.getRange(2, 13, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Pendiente','En gestión','Contactado','En proceso','Completado','No interesado','Cancelado'], true).build());
+    hder.getRange(2, 10, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['URGENTE','ALTA','MEDIA','SUGERIDA'], true).build());
-    hder.getRange(2,14,500,1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Contactado','No contestó','En proceso','Completado','Cancelado'], true).build());
   }
 
   // ── Log ──────────────────────────────────────────────────────────────────
@@ -4861,6 +4870,92 @@ function sincronizarTodo() {
     log.join('\n') + '\n\n🕐 ' + new Date().toLocaleString(),
     ui.ButtonSet.OK
   );
+}
+
+// ============================================================================
+// MIGRACIÓN DE ESTRUCTURA — arregla datos existentes sin borrar filas
+// ============================================================================
+
+/**
+ * Corre una sola vez para:
+ * 1. Corregir headers de Derivados (no toca los datos, solo la fila 1)
+ * 2. Mover la columna Estado de Derivaciones al final (col 13)
+ *    y eliminar Resultado (col 14) — sin borrar datos de otras columnas
+ */
+function migrarEstructura() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActive();
+  const log = [];
+
+  // ── 1. Derivados: corregir headers ─────────────────────────────────────────
+  const hDer = ss.getSheetByName('Derivados');
+  if (hDer) {
+    const h1 = String(hDer.getRange(1,1).getValue());
+    if (h1 === 'Fecha_Import' || h1 === 'ID') {
+      // Reescribir la fila de headers para que coincida con COL_DER + Acción
+      hDer.getRange(1, 1, 1, 14).setValues([[
+        'ID','Fecha Orig.','Nombre','DPI','Edad','Género','Teléfono',
+        'Educación','Formación','Cohorte','Notas','Estado Derivado','Fuente','Fecha Importación'
+      ]]);
+      if (!String(hDer.getRange(1,15).getValue()).includes('Acción'))
+        hDer.getRange(1,15).setValue('⚡ Acción');
+      hDer.getRange(1,1,1,15).setBackground('#880e4f').setFontColor('#fff').setFontWeight('bold');
+      log.push('✅ Derivados: headers corregidos (ID en col A)');
+    } else {
+      log.push('ℹ️ Derivados: headers ya están correctos');
+    }
+  } else {
+    log.push('⚠️ Derivados: hoja no encontrada');
+  }
+
+  // ── 2. Derivaciones: mover Estado al final, quitar Resultado ───────────────
+  const hDeriv = ss.getSheetByName('Derivaciones');
+  if (hDeriv && hDeriv.getLastRow() >= 1) {
+    const nCols  = Math.max(hDeriv.getLastColumn(), 14);
+    const allRows = hDeriv.getRange(1, 1, hDeriv.getLastRow(), nCols).getValues();
+    const hdrs   = allRows[0];
+
+    // Verificar si Estado está en col 7 (índice 6) — estructura antigua
+    const estadoEnCol7 = String(hdrs[6]).toLowerCase().includes('estado');
+
+    if (estadoEnCol7) {
+      const nuevos = allRows.map(function(r, i) {
+        if (i === 0) {
+          return ['Fecha','Creamos_ID','Nombre','Tipo','Destino','Motivo',
+                  'Responsable','Fecha_Seguimiento','Notas','Prioridad',
+                  'Sesion_Relacionada','Fecha_Cierre','Estado'];
+        }
+        // Reordenar: mover Estado (col 7, índice 6) al final
+        // Responsable era col 8 (índice 7), etc.
+        return [r[0],r[1],r[2],r[3],r[4],r[5],r[7],r[8],r[9],r[10],r[11],r[12],r[6]];
+      });
+
+      // Limpiar el rango y reescribir con nueva estructura (13 cols)
+      hDeriv.getRange(1, 1, hDeriv.getLastRow(), 14).clearContent();
+      hDeriv.getRange(1, 1, nuevos.length, 13).setValues(nuevos);
+
+      // Restaurar estilo del header
+      hDeriv.getRange(1,1,1,13).setBackground('#bf360c').setFontColor('#fff').setFontWeight('bold');
+
+      // Aplicar validaciones con nueva posición
+      hDeriv.getRange(2, 13, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['Pendiente','En gestión','Contactado','En proceso','Completado','No interesado','Cancelado'], true).build());
+      hDeriv.getRange(2, 10, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+        .requireValueInList(['URGENTE','ALTA','MEDIA','SUGERIDA'], true).build());
+
+      log.push('✅ Derivaciones: Estado movido a col 13, Resultado eliminado (' + (nuevos.length-1) + ' filas migradas)');
+    } else if (String(hdrs[12]).toLowerCase().includes('estado')) {
+      log.push('ℹ️ Derivaciones: ya tiene la estructura nueva (Estado en col 13)');
+    } else {
+      log.push('⚠️ Derivaciones: no se reconoció la estructura actual — revisa manualmente');
+    }
+  } else {
+    log.push('⚠️ Derivaciones: hoja no encontrada o vacía');
+  }
+
+  ui.alert('🔧 Migración completada', log.join('\n\n') +
+    '\n\n✅ No se borraron datos.\nSi algo se ve raro, avísale al equipo técnico.',
+    ui.ButtonSet.OK);
 }
 
 // ============================================================================
