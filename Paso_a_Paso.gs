@@ -150,6 +150,7 @@ function onOpen() {
       .addSeparator()
       // ── Configuración & Setup ─────────────────────────────────────────
       .addItem('✅ Actualizar Sistema',               'actualizarSistema')
+      .addItem('🔧 Actualizar Derivados',             'actualizarHojaDerivados')
       .addItem('📥 Instalar / Reparar Sistema',      'reinstalarCompleto')
       .addItem('⚙️ Configuración',                   'abrirConfiguracion')
       .addSeparator()
@@ -5078,7 +5079,7 @@ function actualizarSistema() {
       // 2e. Dropdowns
       hDer.getRange(2, COL_DER.ESTADO, 500, 1).setDataValidation(
         SpreadsheetApp.newDataValidation().requireValueInList(
-          ['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
+          ['Pendiente formulario','Pre-Inscritxs','Inscritxs','Formulario enviado','Completó formulario','Inactivo','Rechazado'], true).setAllowInvalid(true).build());
       hDer.getRange(2, 15, 500, 1).setDataValidation(
         SpreadsheetApp.newDataValidation().requireValueInList(
           ['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario','📋 Registrar Sesión'], true).build());
