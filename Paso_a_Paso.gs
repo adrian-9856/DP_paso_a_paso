@@ -185,13 +185,14 @@ function actualizarHojaDerivados() {
       .requireValueInList([
         'Enviar formulario Kobo',
         'Recordatorio de sesión agendada',
-        'Ya completó el formulario'
+        'Ya completó el formulario',
+        '📋 Registrar Sesión'
       ], true)
       .setAllowInvalid(false)
       .build()
   );
 
-  SpreadsheetApp.getUi().alert('✅ Hoja Derivados actualizada.\n\nEl dropdown "Acción" ahora tiene las 3 opciones:\n• Enviar formulario Kobo\n• Recordatorio de sesión agendada\n• Ya completó el formulario');
+  SpreadsheetApp.getUi().alert('✅ Hoja Derivados actualizada.\n\nEl dropdown "Acción" ahora tiene las 4 opciones:\n• Enviar formulario Kobo\n• Recordatorio de sesión agendada\n• Ya completó el formulario\n• 📋 Registrar Sesión');
 }
 
 function diagnostico() {
@@ -1089,6 +1090,11 @@ function manejarEdicion(e) {
           sheet.getRange(fila, estadoIdx + 1).setBackground('#d9ead3').setFontColor('#274e13');
         }
         SpreadsheetApp.getUi().alert('✅ ' + nombre + ' marcada como completado.\n\nCuando sus datos lleguen desde Kobo, aparecerán automáticamente en la hoja Maestro.');
+
+      // ── OPCIÓN 4: Registrar sesión ─────────────────────────────────────
+      } else if (valN.includes('Registrar') || valN.includes('Sesi')) {
+        const id = String(rowData[COL_DER.ID - 1] || '').trim();
+        abrirSesionDesdeHoja(id, nombre);
       }
       return;
     }
@@ -4753,8 +4759,8 @@ function reinstalarCompleto() {
     hd.getRange(2, COL_DER.ESTADO, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['Pendiente formulario','Pre-Inscritxs','Inscritxs','Formulario enviado','Completó formulario','Inactivo','Rechazado'], true).setAllowInvalid(true).build());
     hd.getRange(2, 15, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
-    hd.setColumnWidth(COL_DER.NOMBRE, 180).setColumnWidth(15, 200);
+      .requireValueInList(['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario','📋 Registrar Sesión'], true).build());
+    hd.setColumnWidth(COL_DER.NOMBRE, 180).setColumnWidth(15, 220);
   }
 
   // ── Sesiones ─────────────────────────────────────────────────────────────
@@ -5075,7 +5081,7 @@ function actualizarSistema() {
           ['Pendiente formulario','Formulario enviado','Completó formulario','Rechazado'], true).build());
       hDer.getRange(2, 15, 500, 1).setDataValidation(
         SpreadsheetApp.newDataValidation().requireValueInList(
-          ['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario'], true).build());
+          ['Enviar formulario Kobo','Recordatorio de sesión agendada','Ya completó el formulario','📋 Registrar Sesión'], true).build());
       log.push('✅ Derivados: headers y dropdowns listos');
     } else {
       log.push('⚠️ Derivados: hoja no encontrada');
